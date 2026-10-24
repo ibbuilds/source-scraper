@@ -65,6 +65,27 @@ function mockPublicHttp(t:TestContext,routes:Record<string,ResponseFixture>,
   const request=(url:URL,_options:HttpTypes.RequestOptions,
     callback:(response:HttpTypes.IncomingMessage)=>void)=>{
     requests.push(url.toString());
+    // Exercise the real Node socket contract: Node 22+ may ask a custom
+    // lookup callback for all addresses rather than one address/family pair.
+    // Each mode must return the single prevalidated pinned IP, never DNS again.
+    assert.ok(_options.lookup,"All public requests must use the DNS-pinned resolver");
+    const pinned=addresses[url.hostname]||"93.184.216.34";
+    const family=pinned.includes(":")?6:4;
+    let allCalled=false;
+    _options.lookup(url.hostname,{all:true},(error,ipAddresses)=>{
+      allCalled=true;
+      assert.equal(error,null);
+      assert.deepEqual(ipAddresses,[{address:pinned,family}]);
+    });
+    assert.equal(allCalled,true,"Pinned all:true resolver must respond synchronously");
+    let singleCalled=false;
+    _options.lookup(url.hostname,{all:false},(error,ipAddress,resultFamily)=>{
+      singleCalled=true;
+      assert.equal(error,null);
+      assert.equal(ipAddress,pinned);
+      assert.equal(resultFamily,family);
+    });
+    assert.equal(singleCalled,true,"Pinned singular resolver must respond synchronously");
     const route=routes[url.toString()];
     assert.ok(route,"Unexpected mocked request: "+url);
     const req=new EventEmitter() as HttpTypes.ClientRequest;
