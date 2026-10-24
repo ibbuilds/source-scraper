@@ -1,6 +1,7 @@
 import {test,type TestContext} from "node:test";
 import assert from "node:assert/strict";
 import {EventEmitter} from "node:events";
+import {isIP} from "node:net";
 import {Readable} from "node:stream";
 import {syncBuiltinESMExports} from "node:module";
 import dns from "node:dns/promises";
@@ -60,7 +61,8 @@ function mockPublicHttp(t:TestContext,routes:Record<string,ResponseFixture>,
   const requests:string[]=[],lookups:string[]=[];
   t.mock.method(dns,"lookup",(async(hostname:string)=>{
     lookups.push(hostname);
-    return [{address:addresses[hostname]||"93.184.216.34",family:4}];
+    const address=addresses[hostname]||"93.184.216.34";
+    return [{address,family:isIP(address)}];
   }) as unknown as typeof dns.lookup);
   const request=(url:URL,_options:HttpTypes.RequestOptions,
     callback:(response:HttpTypes.IncomingMessage)=>void)=>{
