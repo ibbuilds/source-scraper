@@ -34,7 +34,7 @@ export async function fetchPublicText(input:string, options:{
         headers:{
           "accept":options.accept,
           "accept-encoding":"identity",
-          "user-agent":"ObsidianXFeedScraper/0.2 (user-configured public sources)"
+          "user-agent":"SourceScraper/0.14 (read-only configured public sources)"
         },
         // Node's auto-family selection may call lookup with {all:true}.
         // Return a one-element address *array* in that mode to preserve
