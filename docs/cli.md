@@ -63,6 +63,17 @@ node dist/source-scraper.mjs init --dir ./demo
 
 For local source debugging, use `node --experimental-strip-types apps/collector/source-cli.ts ...`; the binary release is the user-facing path. `npm run package` additionally builds the **optional** Obsidian Community Plugin, which is not necessary for the data CLI. Never clone the entire repo into an Obsidian plugin directory: the integration has its own packaged `main.js`, `manifest.json`, and `styles.css`.
 
+## Verify one real public API without Obsidian
+
+The [React/UI npm package example](../examples/npm-react-ui/README.md) retrieves a documented public HTTPS JSON source through `public-json`, using no account credentials. With `project.json` available in a checkout or copied workspace:
+
+```sh
+node source-scraper.mjs run --config examples/npm-react-ui/project.json --db ./npm-research.sqlite
+node source-scraper.mjs export --config examples/npm-react-ui/project.json --db ./npm-research.sqlite --out ./npm-research.json
+```
+
+The [live acceptance workflow](../.github/workflows/live-source.yml) confirms nonempty real observations, typed entities, provenance and offline replay with a preserved manual review. It is network-dependent and deliberately distinct from isolated CI fixtures. It does not establish access to X For You or an installed Obsidian vault.
+
 ## Safety, boundaries and limitations
 
 - Run only source adapters you have authorization to access; X's personalized algorithmic **For You** timeline remains unsupported. The CLI does not try to read cookies or bypass provider protections.
