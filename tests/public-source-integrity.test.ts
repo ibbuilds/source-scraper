@@ -155,6 +155,16 @@ test("public HTTPS redirects still resolve and return the final public response"
   assert.equal(requests.length,2);
 });
 
+test("DNS-pinned public IPv6 resolution works with all:true and singular Node callbacks",async t=>{
+  const {requests,lookups}=mockPublicHttp(t,{
+    "https://ipv6.example/data":{body:'{"ok":true}'}
+  },{"ipv6.example":"2606:4700:4700::1111"});
+  const reply=await fetchPublicText("https://ipv6.example/data",jsonOptions);
+  assert.equal(reply.body,'{"ok":true}');
+  assert.deepEqual(lookups,["ipv6.example"]);
+  assert.deepEqual(requests,["https://ipv6.example/data"]);
+});
+
 test("an explicitly configured public HTTP source remains supported",async t=>{
   const {requests}=mockPublicHttp(t,{"http://legacy.example/data":{body:"[]"}});
   const response=await fetchPublicText("http://legacy.example/data",jsonOptions);
