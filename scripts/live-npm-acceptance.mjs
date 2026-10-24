@@ -26,10 +26,18 @@ function invoke(args){
     encoding:"utf8",timeout:90000,maxBuffer:4000000
   });
   if(r.error)throw r.error;
-  assert.equal(r.status,0,
-    "CLI failed: "+args.join(" ")+"\n"+String(r.stderr).slice(0,1500));
-  try{return JSON.parse(r.stdout);}
-  catch{throw Error("CLI returned invalid JSON: "+String(r.stdout).slice(0,700));}
+  let parsed;
+  try{parsed=JSON.parse(r.stdout);}
+  catch{throw Error("CLI did not return JSON; exit "+r.status+
+    "; stderr "+String(r.stderr).slice(0,700));}
+  if(r.status!==0){
+    const failures=parsed?.result?.runs?.map(run=>({
+      sourceId:run.sourceId,status:run.status,error:run.error
+    }))??[];
+    throw Error("CLI failed; exit "+r.status+
+      "; failures "+JSON.stringify(failures).slice(0,1300));
+  }
+  return parsed;
 }
 const flags=["--config",projectFile,"--db",db];
 try{
@@ -107,6 +115,6 @@ try{
     projectId:project.id,observations:observed,distinctEntities:entities.count,
     versionedJson:exported.schemaVersion,
     provenanceVerified:true,manualReviewSurvivedOfflineReplay:true,
-    obisidianVaultWrites:0,externalOutputDeliveries:0
+    obsidianVaultWrites:0,externalOutputDeliveries:0
   }));
 }finally{rmSync(tmp,{recursive:true,force:true});}
