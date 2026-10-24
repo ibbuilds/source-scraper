@@ -36,7 +36,13 @@ export async function fetchPublicText(input:string, options:{
           "accept-encoding":"identity",
           "user-agent":"ObsidianXFeedScraper/0.2 (user-configured public sources)"
         },
-        lookup:(_hostname,_opts,callback)=>callback(null,pinned.address,pinned.family),
+        // Node's auto-family selection may call lookup with {all:true}.
+        // Return a one-element address *array* in that mode to preserve
+        // DNS pinning and avoid the real socket's "Invalid IP address" error.
+        lookup:(_hostname,opts,callback)=>{
+          if(opts.all)callback(null,[{address:pinned.address,family:pinned.family}]);
+          else callback(null,pinned.address,pinned.family);
+        },
         timeout:8000
       },res=>{
         const status=res.statusCode||0;
