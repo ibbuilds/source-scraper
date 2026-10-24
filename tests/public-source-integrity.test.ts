@@ -1,6 +1,7 @@
 import {test,type TestContext} from "node:test";
 import assert from "node:assert/strict";
 import {EventEmitter} from "node:events";
+import {isIP} from "node:net";
 import {Readable} from "node:stream";
 import {syncBuiltinESMExports} from "node:module";
 import dns from "node:dns/promises";
@@ -60,11 +61,33 @@ function mockPublicHttp(t:TestContext,routes:Record<string,ResponseFixture>,
   const requests:string[]=[],lookups:string[]=[];
   t.mock.method(dns,"lookup",(async(hostname:string)=>{
     lookups.push(hostname);
-    return [{address:addresses[hostname]||"93.184.216.34",family:4}];
+    const address=addresses[hostname]||"93.184.216.34";
+    return [{address,family:isIP(address)}];
   }) as unknown as typeof dns.lookup);
   const request=(url:URL,_options:HttpTypes.RequestOptions,
     callback:(response:HttpTypes.IncomingMessage)=>void)=>{
     requests.push(url.toString());
+    // Exercise the real Node socket contract: Node 22+ may ask a custom
+    // lookup callback for all addresses rather than one address/family pair.
+    // Each mode must return the single prevalidated pinned IP, never DNS again.
+    assert.ok(_options.lookup,"All public requests must use the DNS-pinned resolver");
+    const pinned=addresses[url.hostname]||"93.184.216.34";
+    const family=pinned.includes(":")?6:4;
+    let allCalled=false;
+    _options.lookup(url.hostname,{all:true},(error,ipAddresses)=>{
+      allCalled=true;
+      assert.equal(error,null);
+      assert.deepEqual(ipAddresses,[{address:pinned,family}]);
+    });
+    assert.equal(allCalled,true,"Pinned all:true resolver must respond synchronously");
+    let singleCalled=false;
+    _options.lookup(url.hostname,{all:false},(error,ipAddress,resultFamily)=>{
+      singleCalled=true;
+      assert.equal(error,null);
+      assert.equal(ipAddress,pinned);
+      assert.equal(resultFamily,family);
+    });
+    assert.equal(singleCalled,true,"Pinned singular resolver must respond synchronously");
     const route=routes[url.toString()];
     assert.ok(route,"Unexpected mocked request: "+url);
     const req=new EventEmitter() as HttpTypes.ClientRequest;
@@ -132,6 +155,16 @@ test("public HTTPS redirects still resolve and return the final public response"
   assert.equal(response.url,"https://cdn.example/data");
   assert.equal(response.body,'{"items":[]}');
   assert.equal(requests.length,2);
+});
+
+test("DNS-pinned public IPv6 resolution works with all:true and singular Node callbacks",async t=>{
+  const {requests,lookups}=mockPublicHttp(t,{
+    "https://ipv6.example/data":{body:'{"ok":true}'}
+  },{"ipv6.example":"2606:4700:4700::1111"});
+  const reply=await fetchPublicText("https://ipv6.example/data",jsonOptions);
+  assert.equal(reply.body,'{"ok":true}');
+  assert.deepEqual(lookups,["ipv6.example"]);
+  assert.deepEqual(requests,["https://ipv6.example/data"]);
 });
 
 test("an explicitly configured public HTTP source remains supported",async t=>{

@@ -1,4 +1,4 @@
-# Source Scraper 0.13.0 acceptance and release boundaries
+# Source Scraper 0.14.0 acceptance and release boundaries
 
 CI verification refers to the automated GitHub Actions tests, not the user's personal Obsidian vault or X account. Feature status must not be inferred from installability alone.
 
@@ -10,6 +10,8 @@ CI verification refers to the automated GitHub Actions tests, not the user's per
 | JSON equality / change diff speed | Implemented and tested | Direct order-insensitive object comparison vs original canonical serialization oracle; 1,000 differential fixtures and same-runner nested diff benchmarks |
 | Keyword evaluator caching | Implemented and tested | Run-scoped terms with in-place policy mutation detection, invalid-input validation and unchanged scoring/confidence |
 | Bounded offline entity enumeration | Implemented and tested | SQLite row iterator replaces full `.all()` materialization; existing 100-entity commits, cancellation and error boundaries preserved |
+| Real public source end-to-end | **Verified separately** | Public npm registry HTTPS JSON → normalized 8 real React/UI package observations → SQLite entities → JSON v1 provenance → manual review preserved after offline replay; no credentials, Obsidian writes or webhook side effects; [live run](https://github.com/ibbuilds/source-scraper/actions/runs/40139687116) |
+| Node HTTPS DNS pinning contract | Fixed and regression tested | Honors Node.js single-IP and `{all:true}` custom-lookup callbacks while refusing unsafe/private DNS and HTTP downgrade; real public API smoke exposed and verified the fix |
 | Offline performance regression profile | Implemented and tested | Same-runner baseline comparison for SQLite review/history reads, JSON file paging and snapshot revision reuse; results depend on runner and fixture |
 | Large JSON export memory | Implemented and tested | Streams bounded pages to JSON/NDJSON without building a 100k-record intermediate array |
 | Independent generic core | Implemented and tested | Projects/observations/entities do not require X, URLs or Obsidian |

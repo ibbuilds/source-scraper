@@ -1,0 +1,44 @@
+{
+  "id": "npm-react-ui-discovery",
+  "name": "Public npm React/UI discovery (authorized read-only source)",
+  "sources": [
+    {
+      "id": "npm-public-search",
+      "adapter": "public-json",
+      "config": {
+        "url": "https://registry.npmjs.org/-/v1/search?text=react%20ui%20components&size=8",
+        "entityNamespace": "npm-registry",
+        "mapping": {
+          "itemsPath": "objects",
+          "idPath": "package.name",
+          "type": "npm-package",
+          "titlePath": "package.name",
+          "textPath": "package.description",
+          "urlPath": "package.links.npm",
+          "occurredAtPath": "package.date",
+          "attributes": {
+            "version": "package.version",
+            "description": "package.description",
+            "npmScore": "score.final",
+            "license": "package.license",
+            "homepage": "package.links.homepage",
+            "repository": "package.links.repository"
+          }
+        }
+      }
+    }
+  ],
+  "pipeline": [
+    "observation-entity"
+  ],
+  "evaluator": "keyword",
+  "policy": {
+    "includeKeywords": [
+      "react",
+      "ui"
+    ],
+    "excludeKeywords": [],
+    "minimumScore": 0
+  },
+  "outputs": []
+}

@@ -8,7 +8,7 @@ The project is a **data engine**, not an X-specific scraper, bookmarking app, Ob
 
 ## Quick start — one file, zero setup for the offline demo
 
-**Requirement:** Node.js **22.16+**. Download [`source-scraper.mjs` from v0.13.0-beta.1](https://github.com/ibbuilds/source-scraper/releases/download/v0.13.0-beta.1/source-scraper.mjs), then:
+**Requirement:** Node.js **22.16+**. Download [`source-scraper.mjs` from v0.14.0-beta.1](https://github.com/ibbuilds/source-scraper/releases/download/v0.14.0-beta.1/source-scraper.mjs), then:
 
 ```sh
 node source-scraper.mjs init --dir ./demo
@@ -21,6 +21,27 @@ node source-scraper.mjs export --config ./demo/project.json --format ndjson --ou
 That's it. The included synthetic example creates `project.json` and `observations.json`; the database `.source-scraper.sqlite` is created next to the manifest on the first run. No calls to X, no external network and no installation of Obsidian. Modify the JSON to use your own data or source adapter.
 
 See the [complete CLI guide](docs/cli.md) and [stable JSON schemas](schemas/).
+
+## Real public-source validation
+
+The [npm React/UI example](examples/npm-react-ui/README.md) uses the **real, documented,
+read-only npm registry search API**. It runs with the existing general `public-json`
+adapter and a normal JSON manifest — **no X account or Obsidian required**.
+
+```sh
+node source-scraper.mjs run --config examples/npm-react-ui/project.json --db ./npm-research.sqlite
+node source-scraper.mjs export --config examples/npm-react-ui/project.json --db ./npm-research.sqlite --out ./npm-research.json
+```
+
+Use these commands from the repo checkout, or copy the example `project.json`
+into your own folder and adjust `--config`. This runs against a *live external*
+API; the offline demo above is still the safest first test.
+
+The [independent live-source workflow](.github/workflows/live-source.yml) has
+verified a real HTTPS response, eight unique package observations, persisted
+entities, JSON v1 provenance and a saved manual review surviving offline
+reprocessing. It makes no personal-vault writes or webhook deliveries. npm
+package metadata is **not independent evidence of license validity or quality**.
 
 ## How it works
 
@@ -88,7 +109,7 @@ node dist/source-scraper.mjs init --dir ./demo
 npm test
 ```
 
-The `source-scraper-0.13.0.tgz` asset is also provided for users who prefer a local npm package. **The package has not been published to npm;** do not confuse this tarball with a public registry listing.
+The `source-scraper-0.14.0.tgz` asset is also provided for users who prefer a local npm package. **The package has not been published to npm;** do not confuse this tarball with a public registry listing.
 
 ## Performance and release policy
 
