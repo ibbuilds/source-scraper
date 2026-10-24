@@ -1,0 +1,41 @@
+name: Public source live acceptance
+
+on:
+  pull_request:
+    paths:
+      - "apps/collector/**"
+      - "packages/**"
+      - "examples/npm-react-ui/**"
+      - "scripts/live-npm-acceptance.mjs"
+      - ".github/workflows/live-source.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/collector/**"
+      - "packages/**"
+      - "examples/npm-react-ui/**"
+      - "scripts/live-npm-acceptance.mjs"
+      - ".github/workflows/live-source.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: '23 5 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  real-public-json:
+    name: Real public npm JSON API → SQLite → JSON
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Install and build standalone CLI
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build:cli
+      - name: Validate real authorized public registry ingestion
+        run: node scripts/live-npm-acceptance.mjs
