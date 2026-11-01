@@ -41,6 +41,20 @@ const linked:Processor={
     return [...previous,...candidates(observation).filter(url=>url!==original).map(asWebResource)];
   }
 };
+/** X posts remain provenance; expanded external URLs become resources. */
+const xDiscovery:Processor={id:"x-discovery",run(_context,observation,previous){
+  if(observation.type!=="x-post")throw Error("x-discovery requires normalized X posts");
+  const external=[...new Set(observation.urls||[])].filter(url=>{
+    const host=new URL(url).hostname;return !isXUrl(url)&&host!=="t.co"&&!host.endsWith(".t.co");
+  });
+  const drafts:EntityDraft[]=external.map(url=>({...asWebResource(url),
+    attributes:{discoveryPost:observation.url||"",discoveryText:observation.text||"",author:observation.attributes?.author||""}}));
+  if(!drafts.length)drafts.push({key:"x-inspiration:"+observation.id,type:"x-inspiration",
+    title:observation.title||"X inspiration",url:observation.url,
+    attributes:{postText:observation.text||"",media:observation.media||[],author:observation.attributes?.author||""},
+    evidence:[{signal:"x-post-without-external-resource",detail:"Source post preserved for contextual review; no external tool URL established",confidence:1}]});
+  return [...previous,...drafts];
+}};
 // The metadata stage is explicitly opt-in in project.pipeline. It shares the
 // already hardened public HTTP client and never reads authenticated X content.
 const metadataSessions=new WeakMap<AbortSignal,{count:number;cache:Map<string,
@@ -168,4 +182,4 @@ const keyword:Evaluator={
   }
 };
 export const builtinProcessing:Extension={apiVersion:1,
-  processors:[links,linked,self,metadata],evaluators:[keyword]};
+  processors:[links,linked,self,metadata,xDiscovery],evaluators:[keyword]};
