@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Source Scraper agent recommendation input v1",
+  "description": "A separate agent recommendation. Never a human review or verified model identity.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["evidenceFingerprint", "rubric", "recommendation", "reasons", "uncertainties", "references", "actor", "model"],
+  "properties": {
+    "evidenceFingerprint": {"type":"string","pattern":"^[a-f0-9]{64}$"},
+    "rubric": {"type":"string","minLength":1,"maxLength":8000},
+    "recommendation": {"enum":["recommend","reject","needs-evidence"]},
+    "reasons": {"type":"array","minItems":1,"maxItems":30,"items":{"type":"string","minLength":1,"maxLength":2000}},
+    "uncertainties": {"type":"array","maxItems":30,"items":{"type":"string","minLength":1,"maxLength":2000}},
+    "references": {"type":"array","maxItems":25,"items":{"type":"object","additionalProperties":false,"required":["path","sha256"],"properties":{"path":{"type":"string","maxLength":1000},"sha256":{"type":"string","pattern":"^[a-f0-9]{64}$"}}}},
+    "actor": {"type":"string","minLength":1,"maxLength":8000},
+    "model": {"type":"string","minLength":1,"maxLength":8000}
+  }
+}

@@ -76,6 +76,16 @@ The [live acceptance workflow](../.github/workflows/live-source.yml) confirms no
 
 ## Safety, boundaries and limitations
 
+### Separate agent recommendations and selected JSON
+
+`inspect` now includes an evidence `fingerprint`. An explicitly requested `assessment-record --config FILE --key KEY --record-json JSON` appends a separate agent recommendation, using [agent-assessment-v1.schema.json](../schemas/agent-assessment-v1.schema.json). Required input includes the observed fingerprint, rubric, recommendation (`recommend`, `reject`, `needs-evidence`), reasons, uncertainties, reference-note paths/hashes, and reported actor/model. A stale fingerprint is rejected. Actor/model metadata is reported, not attested. Full private reference-note bodies are not required.
+
+`assessment-list --config FILE --key KEY [--limit N --offset N]` reads those records and reports whether the current engine evidence differs. These operations never change human review or evaluator history, and do not add agent records to entity export v1.
+
+`export --config FILE --keys-json '["ENTITY_KEY"]'` exports 1–200 exact entity keys as JSON on stdout, with the existing v1 provenance envelope. Duplicate/missing keys fail. This option does not support an output filename or other datasets. `version` advertises `agent-assessments-v1` and `selected-entity-export-v1` capabilities so consumers can reject older binaries clearly.
+
+The ChatGPT integration is a producer of findings and drafts. It does not own vault-note creation or editing; ChatGPT uses the separate existing Obsidian connector only when the user explicitly instructs it to write.
+
 - Run only source adapters you have authorization to access; X's personalized algorithmic **For You** timeline remains unsupported. The CLI does not try to read cookies or bypass provider protections.
 - Explicit local CommonJS extensions and MCP subprocesses execute with the current OS user's permissions. They are **not sandboxed**. Audit them and supply `--extension` only to code you trust.
 - SQLite uses an exclusive writer lease and transactional page checkpoints. **Back up the DB before upgrading**; opening a legacy DB may run additive migrations. No cloud account or telemetry is required.
