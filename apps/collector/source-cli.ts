@@ -3,6 +3,7 @@
  * Commands emit a single JSON document (or opt-in NDJSON) on stdout.
  * No implicit vault writes, network notifications or external output adapters.
  */
+import {evidenceFingerprint,recordAgentAssessment,listAgentAssessments} from "../../packages/core/agent-assessment.ts";
 import {existsSync,mkdirSync,readFileSync,realpathSync,writeFileSync} from "node:fs";
 import {open as openFile,unlink} from "node:fs/promises";
 import {dirname,join,resolve} from "node:path";
@@ -32,6 +33,9 @@ const HELP=[
   "  source-scraper export --config project.json [--dataset entities|observations|changes|alerts]",
   "      [--format json|ndjson] [--out FILE] [--limit N] [--offset N]",
   "  source-scraper adapters                         List installed SDK adapters",
+  "  source-scraper assessment-record --config FILE --key KEY --record-json JSON",
+  "  source-scraper assessment-list --config FILE --key KEY [--limit N --offset N]",
+  "  source-scraper export --config FILE --keys-json '[\"ENTITY_KEY\"]'",
   "  source-scraper version",
   "",
   "Defaults: a .source-scraper.sqlite database next to --config; exports go to stdout.",
@@ -40,10 +44,12 @@ const HELP=[
   "No Obsidian installation, GUI, X session or network account is required."
 ].join("\n");
 const COMMAND_FLAGS:Record<string,string[]>={
+  "assessment-record":["config","db","id","key","record-json"],
+  "assessment-list":["config","db","id","key","limit","offset"],
   init:["dir"],validate:["config","extension"],run:["config","db","extension","page-size","max-pages"],
   projects:["db","config"],query:["db","config","id","dataset","limit","offset","search","type","min-score"],
   inspect:["db","config","id","key"],review:["db","config","id","key","decision","reason"],
-  reprocess:["db","config","extension"],export:["db","config","id","dataset","format","out","limit","offset","compact"],
+  reprocess:["db","config","extension"],export:["db","config","id","dataset","format","out","limit","offset","compact","keys-json"],
   adapters:["extension"],version:[]
 };
 function argumentsToFlags(args:readonly string[],allowed:readonly string[]):Flags{
@@ -215,7 +221,7 @@ function init(dir:string):void{
     observationsFile:input,databasePath:join(root,".source-scraper.sqlite"),synthetic:true});
 }
 async function execute(command:string,flags:Flags):Promise<void>{
-  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION});return;}
+  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1"]});return;}
   if(command==="init"){init(flags.get("dir")||"./source-scraper-project");return;}
   if(command==="adapters"){
     const r=createDefaultRegistry(flags.get("extension")?[resolve(required(flags,"extension"))]:[]);
@@ -264,10 +270,14 @@ async function execute(command:string,flags:Flags):Promise<void>{
     if(!store.listProjects().some(row=>row.id===id)){
       throw new Error("Project not found in database: "+id);
     }
-    if(command==="inspect"){
+    if(command==="assessment-record"){
+      output({schemaVersion:DATA_VERSION,record:recordAgentAssessment(store,id,required(flags,"key"),required(flags,"record-json"))});
+    }else if(command==="assessment-list"){
+      output({schemaVersion:DATA_VERSION,records:listAgentAssessments(store,id,required(flags,"key"),integer(flags,"limit",50,1,200),integer(flags,"offset",0,0,1000000))});
+    }else if(command==="inspect"){
       const data=store.entityEvidence(id,required(flags,"key"));
       if(!data)throw new Error("Entity not found");
-      output({schemaVersion:DATA_VERSION,command,id,...data});
+      output({schemaVersion:DATA_VERSION,command,id,...data,fingerprint:evidenceFingerprint(data)});
     }else if(command==="review"){
       const decision=required(flags,"decision");
       if(!["approved","rejected","pending"].includes(decision))throw new Error("Invalid --decision");
@@ -289,6 +299,13 @@ async function execute(command:string,flags:Flags):Promise<void>{
       const compact=flags.get("compact")===undefined?false:
         ["true","false"].includes(flags.get("compact")!)?flags.get("compact")==="true":
         (()=>{throw new Error("--compact must be true or false");})();
+      if(flags.has("keys-json")){
+        if(dataset!=="entities"||format!=="json"||["out","limit","offset","compact"].some(flag=>flags.has(flag)))throw Error("Selected export requires entities JSON on stdout without paging/compact flags");
+        const keys:unknown=JSON.parse(required(flags,"keys-json"));
+        if(!Array.isArray(keys)||!keys.length||keys.length>200||keys.some(k=>typeof k!=="string"||!k||k.length>4000)||new Set(keys).size!==keys.length)throw Error("Invalid selected keys");
+        const records=keys.map(key=>{const entity=store.getEntity(id,key);if(!entity)throw Error("Entity not found");return exportedEntity(store,id,entity,false);});
+        output({schemaVersion:DATA_VERSION,dataset,projectId:id,exportedAt:new Date().toISOString(),limit:keys.length,offset:0,count:records.length,records});return;
+      }
       const count=await streamExport(store,id,dataset,flags,limit,offset,compact,format as "json"|"ndjson");
       if(flags.get("out")){
         output({schemaVersion:DATA_VERSION,command,dataset,projectId:id,

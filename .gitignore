@@ -14,3 +14,5 @@ apps/obsidian-plugin/collector.cjs
 apps/obsidian-plugin/design.json
 coverage/
 *.log
+runtime-projects/
+.npm-cache/
