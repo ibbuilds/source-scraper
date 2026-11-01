@@ -60,7 +60,7 @@ Observation IDs are connection-scoped, but **entity keys must be unique across t
 
 Each entity gets an `Assessment` containing category, score [0,100], confidence [0,1] and explanatory reasons. Evaluations are independent of human approvals/rejections; prior human decisions persist across reprocessing.
 
-The optional built-in `x-for-you` source and `x-discovery` processor preserve provider-reported X provenance, separate expanded external resources from inspiration-only posts, and retain a continuation cursor between bounded source windows. They do not provide official X access or verify the provider's For You claim. Account setup, local approval and collection semantics are documented in [the X example](../examples/x-for-you/README.md).
+The free built-in `x-for-you-local` source and `x-discovery` processor preserve locally collected X provenance, separate expanded external resources from inspiration-only posts, and retain a continuation cursor between bounded source windows. They use an unofficial client; actual authenticated For You access still needs live acceptance. Account setup, local approval and collection semantics are documented in [the X example](../examples/x-for-you/README.md).
 
 The built-in keyword evaluator is deterministic and heuristic. Terms are trimmed, deduplicated without regard to case, and rejected when blank. These checks apply to parsed manifests and direct SDK evaluations. You can implement different relevance, classification or local-model evaluators while preserving the same storage, review and output logic.
 

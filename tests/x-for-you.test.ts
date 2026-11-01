@@ -133,17 +133,20 @@ test("X posts pass through real SQLite discovery, filters and deduplication whil
   }finally{rmSync(root,{recursive:true,force:true});}
 });
 
-test("packaged CLI advertises X capability and refuses collection without explicit approval",()=>{
+test("packaged CLI advertises free local X capability and refuses collection without explicit local approval",()=>{
   const cli=process.env.SOURCE_SCRAPER_TEST_CLI||fileURLToPath(new URL("../dist/source-scraper.mjs",import.meta.url));
   const root=mkdtempSync(join(tmpdir(),"ss-x-cli-"));
   try{
     const config=join(root,"project.json");
-    writeFileSync(config,JSON.stringify({id:"x-cli",name:"X CLI fixture",sources:[source],pipeline:["x-discovery"],evaluator:"keyword",policy:{includeKeywords:[],excludeKeywords:[],minimumScore:0},outputs:[]}));
+    writeFileSync(config,JSON.stringify({id:"x-cli",name:"X CLI fixture",sources:[{...source,adapter:"x-for-you-local"}],pipeline:["x-discovery"],evaluator:"keyword",policy:{includeKeywords:[],excludeKeywords:[],minimumScore:0},outputs:[]}));
     const env={...process.env};delete env.SOURCE_SCRAPER_X_PROVIDER_APPROVED;delete env.SOURCE_SCRAPER_X_ACCOUNT_SESSION;delete env.SOURCE_SCRAPER_GETXAPI_API_KEY;
     const version=spawnSync(process.execPath,[cli,"version"],{encoding:"utf8",env});
-    assert.ok(JSON.parse(version.stdout).capabilities.includes("x-for-you-getxapi-v1"));
+    assert.ok(JSON.parse(version.stdout).capabilities.includes("x-for-you-local-v1"));
+    const adapters=spawnSync(process.execPath,[cli,"adapters"],{encoding:"utf8",env});
+    assert.ok(JSON.parse(adapters.stdout).sources.includes("x-for-you-local"));
+    assert.ok(!JSON.parse(adapters.stdout).sources.includes("x-for-you"),"The retired paid source must never be registered");
     const run=spawnSync(process.execPath,[cli,"run","--config",config],{encoding:"utf8",env});
     assert.equal(run.status,1);assert.equal(JSON.parse(run.stdout).result.observations,0);
-    assert.match(run.stdout,/X_PROVIDER_APPROVAL_REQUIRED/);assert.notEqual(X_PROVIDER_APPROVAL,"");
+    assert.match(run.stdout,/X_LOCAL_APPROVAL_REQUIRED/);assert.notEqual(X_PROVIDER_APPROVAL,"");
   }finally{rmSync(root,{recursive:true,force:true});}
 });
