@@ -7,6 +7,20 @@ on:
 permissions:
   contents: read
 jobs:
+  local-x-bridge:
+    name: Free local X worker (no account/network fixtures)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r scripts/requirements-x-local.txt
+      - run: python -c "import twikit; assert twikit.__version__ == '2.4.0'"
+      - run: python tests/x-local-worker.test.py
   build-test-package:
     runs-on: ${{ matrix.os }}
     strategy:

@@ -13,7 +13,7 @@ import {loadProject} from "../../packages/core/project-config.ts";
 import {runProject,reprocessProject} from "../../packages/core/engine.ts";
 import {KnowledgeStore} from "../../packages/storage/knowledge.ts";
 import {demoObservations} from "../../packages/core/demo.ts";
-import {xForYouConfig} from "../../packages/adapters/x-for-you.ts";
+import {xLocalConfig} from "../../packages/adapters/x-local.ts";
 import type {KnowledgeEntity,ProjectDefinition} from "../../packages/sdk/contracts.ts";
 
 declare const __SOURCE_SCRAPER_VERSION__:string;
@@ -222,7 +222,7 @@ function init(dir:string):void{
     observationsFile:input,databasePath:join(root,".source-scraper.sqlite"),synthetic:true});
 }
 async function execute(command:string,flags:Flags):Promise<void>{
-  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-getxapi-v1"]});return;}
+  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1"]});return;}
   if(command==="init"){init(flags.get("dir")||"./source-scraper-project");return;}
   if(command==="adapters"){
     const r=createDefaultRegistry(flags.get("extension")?[resolve(required(flags,"extension"))]:[]);
@@ -236,7 +236,10 @@ async function execute(command:string,flags:Flags):Promise<void>{
     if(!project)throw new Error("Missing project");
     // Validation must be side-effect-free and never load executable third-party extensions.
     if(command==="validate"){
-      for(const source of project.sources)if(source.adapter==="x-for-you")xForYouConfig(source.config);
+      for(const source of project.sources){
+        if(source.adapter==="x-for-you-local")xLocalConfig(source.config);
+        if(source.adapter==="x-for-you")throw Error("PAID_X_PROVIDER_RETIRED: use x-for-you-local");
+      }
       output({schemaVersion:DATA_VERSION,command,id,name:project.name,
         sourceAdapters:project.sources.map(source=>source.adapter),
         pipeline:project.pipeline,evaluator:project.evaluator,

@@ -1,25 +1,18 @@
-# X For You: disabled until local account setup
+# Free local X For You
 
-This example samples the **provider-reported** personalized For You feed through GetXAPI. It is not official X API access and has not been verified with a live account. The numeric account ID in project.json is a placeholder; replace it locally with the account actually connected. Never commit personal credentials or account configuration.
+Uses [Twifork](https://github.com/PawiX25/twifork) 2.4.0 locally. No commercial API key, subscription, credit purchase or paid fallback. GetXAPI is retired from the CLI. A real authenticated personalized feed is not yet verified.
 
-The provider documents approximately 20 posts and $0.001 per request. It receives your X account session token; this is sensitive access, not a harmless public-feed key. Review the [provider contract](https://docs.getxapi.com/docs/users/home-timeline), applicable X rules and the [delivery plan](../../docs/x-feed-implementation-plan.md) before deciding to activate. No browser automation or cookie extraction is included. Do not paste credentials into ChatGPT or MCP arguments.
+On Windows run `scripts/setup-x-local.ps1` to prepare checksum-verified uv, isolated Python and pinned dependencies under `runtime-tools/`. No system Python change or account request. Elsewhere create a private Python 3.12 environment and install `scripts/requirements-x-local.txt`.
 
-After explicit user approval, supply these variables to the local process through your normal private credential mechanism:
+Replace the example numeric account ID with the actual account. Supply these values privately to the local process:
 
-- `SOURCE_SCRAPER_GETXAPI_API_KEY`: provider API key.
-- `SOURCE_SCRAPER_X_ACCOUNT_SESSION`: the account session supplied by its owner.
-- `SOURCE_SCRAPER_X_PROVIDER_APPROVED`: exact value `getxapi-session-disclosure-and-paid-requests`.
+- `SOURCE_SCRAPER_X_PYTHON`: absolute isolated Python interpreter.
+- `SOURCE_SCRAPER_X_ACCOUNT_SESSION`: owner-supplied X session.
+- `SOURCE_SCRAPER_X_CSRF`: matching local CSRF value.
+- `SOURCE_SCRAPER_X_LOCAL_APPROVED`: `local-read-only`.
 
-No environment values are returned by the adapter. In Obsidian, the separate local provider toggle must also be enabled; a remote manifest cannot grant paid/account access. Obsidian must inherit the credential environment when it starts. The plugin removes inherited approval unless its local toggle is enabled.
+Never paste session values into chat, manifests, notes or Git. No browser-session extraction or password login automation is included. Obsidian additionally requires its local read grant and configured Python path. Remote arguments cannot enable these.
 
-```
-node dist/source-scraper.mjs validate --config /absolute/private/project.json
-node dist/source-scraper.mjs run --config /absolute/private/project.json --page-size 100
-node dist/source-scraper.mjs query --config /absolute/private/project.json --min-score 50
-```
+Run the project explicitly with page size 100–500; query with the chosen minimum score. Each run samples `pagesPerRun` (1–10) pages, retains continuation, and resets at provider exhaustion. Success does not mean full coverage of a changing feed. Public bootstrap scripts receive no account cookies. Account mismatch, authentication/rate-limit errors and unsupported operations stop collection without a bypass or paid retry.
 
-Each run requests at most `pagesPerRun` (1–10, default 1) pages, with no automatic retry. Each configured source window completes independently of the provider's remaining feed. The next provider cursor is retained for the next explicit run. At provider exhaustion the next run starts at the current feed. Do not interpret success as complete coverage of a changing feed. Use page sizes 100–500 because provider pages cannot be safely truncated.
-
-Expanded external links become resource entities. A post without an established external URL remains a distinct inspiration candidate. t.co short links are not treated as established tools. Original post evidence/author/date/media are retained when provided. Public metadata enrichment is opt-in through the pipeline and makes at most 20 requests per run. Scores apply editable relevance heuristics; ChatGPT still needs to inspect evidence and give separate quality judgments.
-
-Use the existing MCP tools to list/inspect findings, record recommendations, stage the shortlist and preview drafts. No run creates a vault note. Only the separate Obsidian connector writes notes when the user explicitly orders it.
+Expanded links become resources; posts without an established external link remain inspiration candidates. Optional public metadata enrichment is bounded. ChatGPT inspects evidence, assesses quality separately and stages its shortlist through the existing MCP tools. Only the independent user-directed Obsidian connector writes final notes.

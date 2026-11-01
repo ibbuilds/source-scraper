@@ -86,7 +86,7 @@ The [live acceptance workflow](../.github/workflows/live-source.yml) confirms no
 
 The ChatGPT integration is a producer of findings and drafts. It does not own vault-note creation or editing; ChatGPT uses the separate existing Obsidian connector only when the user explicitly instructs it to write.
 
-- Run only source adapters you have authorization to access. The optional `x-for-you` GetXAPI adapter is disabled without local approval and credentials; its actual personalized feed access remains unverified. See [X setup](../examples/x-for-you/README.md). The CLI does not extract browser cookies or bypass provider protections.
+- Run only source adapters you have authorization to access. The free `x-for-you-local` Twifork adapter is disabled without local approval and credentials; its actual personalized feed access remains unverified. See [X setup](../examples/x-for-you/README.md). The CLI does not extract browser cookies or bypass provider protections.
 - Explicit local CommonJS extensions and MCP subprocesses execute with the current OS user's permissions. They are **not sandboxed**. Audit them and supply `--extension` only to code you trust.
 - SQLite uses an exclusive writer lease and transactional page checkpoints. **Back up the DB before upgrading**; opening a legacy DB may run additive migrations. No cloud account or telemetry is required.
 - The toolkit does not guarantee the completeness of third-party sources, universal truth of a classification or license, delivery of an external webhook, or that a data source's absence signifies deletion.

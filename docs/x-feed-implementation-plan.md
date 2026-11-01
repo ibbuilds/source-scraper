@@ -1,30 +1,21 @@
-# X feed discovery delivery plan
+# Free local X feed delivery plan
 
-## Outcome and ownership
+The user requires **no paid API**. The earlier GetXAPI direction is superseded, its unconsumed request approval was revoked, and its adapter is no longer registered in the CLI. No paid fallback, browser control during development, or vault-note writes.
 
-Use the account-personalized X For You feed to discover tools, resources and visual inspiration; apply project filters, retain provenance and deduplicate; let ChatGPT assess evidence and stage its shortlist in Obsidian. Only the separate user-directed Obsidian connector writes vault notes. No personal notes are development fixtures. No new repository, server or tunnel is required.
+## Source decision
 
-- **source-scraper:** provider adapter, bounded collection/checkpoints, X post normalization, resource/inspiration extraction, public CLI capability, examples and tests.
-- **obsidian-source-scraper-plugin:** explicit local provider grant, account/setup diagnostics, existing CLI/MCP run path and review UI. Existing host patch/tunnel remain unchanged.
+Use [PawiX25/twifork](https://github.com/PawiX25/twifork), MIT, version 2.4.0. Its actual implementation distinguishes `get_timeline()` (For You) from `get_latest_timeline()` (Following); this was checked in GitHub source and the installed package. It needs a local X session, not a commercial key or credit balance. Actual account access still needs live acceptance.
 
-## Feasibility decision (November 1, 2026)
+[X-data](https://github.com/ttmouse/X-data) is a visible-browser capture alternative; it requires browsing/exports. Search/bookmark-only wrappers do not provide the requested feed. No third repository is created.
 
-[X's official timeline API](https://docs.x.com/x-api/posts/timelines) explicitly excludes algorithmic ranking. [GetXAPI's home timeline](https://docs.getxapi.com/docs/users/home-timeline) documents `following:false` as For You, a fixed POST endpoint, pagination and approximately 20 posts per $0.001 request. This is a **third-party claim**, not verified access or X endorsement. Twikit also uses account sessions and unofficial interfaces, so adding it would not remove the account-access dependency.
+## Delivery sequence
 
-Implement a disabled, credential-free-by-default GetXAPI integration that can be contract-tested without account access. Do not use an existing browser session, extract cookies, purchase access, or send account credentials during development. Live activation is a separate user decision: the provider would receive the X session token and paid requests. Credentials must be supplied locally, never through chat, MCP arguments, project JSON or repository files.
+1. Engine: register `x-for-you-local`, embed a fixed Python worker and reuse the bounded stdio transport. No executable paths, session values or arbitrary operations in remote arguments/manifests. Collect 1–10 pages per source window with retained continuation.
+2. Read boundary: send account credentials only to X first-party hosts; public bootstrap scripts receive none. Admit settings/identity, user lookup and HomeTimeline only. Deny account writes, login automation, redirects, challenge solving, TLS impersonation and paid fallback. Stop on 401/403/429.
+3. Discovery: reuse resource/inspiration extraction, SQLite provenance, deduplication, editable relevance filters and independent agent assessments. Rejecting a shortlist candidate preserves its audit evidence.
+4. Obsidian: replace paid setup with a local read grant, isolated Python path and non-secret session readiness. Reuse the existing 15 tools, review queue and read-only drafts. Project files stay outside the vault. Only the separate user-directed connector writes final notes.
+5. Runtime: install checksum-verified uv, isolated Python and pinned dependencies inside the existing engine project. No system installation, automatic runtime download during collection or session persistence in Git.
+6. Verification: run Node engine/plugin tests, real Python protocol/policy tests and isolated Desktop CI. Merge passing revisions and install versioned artifacts while preserving notes and existing transport/tunnel work.
+7. Live acceptance: owner supplies a session locally; perform one bounded free read, verify actual account/For You behavior, inspect resource evidence, assess quality and stage a shortlist. Mocks, library docstrings and npm examples do not satisfy this gate.
 
-## Delivery slices and gates
-
-1. **Provider contract:** fixed HTTPS endpoint only; no redirects or endpoint/proxy overrides; environment credentials plus explicit local approval; bounded response/time/request counts; no retries of charged requests; sanitized errors and allowlisted output fields. Gate: disabled/missing credentials cause zero network calls; transport tests prove destination, For You selector, cancellation, error confidentiality and limits.
-2. **Discovery:** preserve post ID, URL, author, date, expanded resource links and available media. Separate external resources from source posts; keep a distinct inspiration candidate when no external resource exists. Reuse project keyword filters, public metadata (optional), provenance, SQLite deduplication and independent agent assessments. Gate: repeated posts/resources deduplicate and unrelated/excluded content does not enter a score-filtered shortlist.
-3. **Obsidian wiring:** a local off-by-default provider grant cannot be enabled through MCP. Remote project creation cannot enable account/billing access. Supply a local setup path and clear environment readiness without revealing secrets. Existing run/list/inspect/stage/draft tools consume the adapter. Gate: no grant means no paid collection; enabled fixture execution reaches the same review UI without vault writes.
-4. **Verification and delivery:** build standalone CLI and plugin, run affected regressions and existing required checks; publish changes to the existing repositories and merge only passing revisions. Keep deployed integration unchanged until a compatible build is verified; preserve all vault notes and tunnel changes.
-5. **Live acceptance, pending user approval/account connection:** approve the concrete provider/session disclosure and budget; supply credentials locally; perform one bounded request; verify actual account and For You semantics against a real feed sample; inspect links and assess actual resource quality; stage accepted candidates. Only then mark X integration verified. Provider failure, a mock response or an npm run does not satisfy this gate.
-
-## Collection semantics and quality
-
-Each run samples a configured bounded window of provider pages, not the entire dynamic feed. A retained provider cursor resumes the next window; exhaustion resets to the current feed on a later run. No background collection or paid retries. Provider metadata is untrusted and cannot authorize writes. Machine scores measure configured relevance, not aesthetic quality, license validity or AI approval. ChatGPT's recommendations remain separate from human decisions; rejection removes a finding from a shortlist, not its audit evidence.
-
-## Rollback and completion
-
-Disabling the local grant prevents further provider calls while stored findings remain reviewable. Restore previous code artifacts if necessary; do not delete findings, credentials or user content as rollback. The existing generic MCP integration is already installed and merged; this document tracks the missing X source separately. Code/contract completion and authenticated live acceptance must be reported separately.
+Disable the local read grant to stop account collection while retaining findings. X may change or restrict unofficial clients; report the failure without silently switching to Following/search. Machine relevance scores do not certify quality or licensing. No personal notes are development fixtures.

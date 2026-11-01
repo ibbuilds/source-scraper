@@ -15,4 +15,5 @@ apps/obsidian-plugin/design.json
 coverage/
 *.log
 runtime-projects/
+runtime-tools/
 .npm-cache/
