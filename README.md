@@ -4,7 +4,7 @@
 
 Connect a permitted source (JSON, RSS, public APIs, product pages, trusted MCP or custom SDK adapter), extract and normalize entities, deduplicate and evaluate evidence, retain provenance in SQLite, monitor changes, and export the information as **versioned JSON/NDJSON** for any consumer to use.
 
-The project is a **data engine**, not an X-specific scraper, bookmarking app, Obsidian plugin or universal scraping bypass. It does **not** currently access the algorithmically personalized X **For You** feed.
+The project is a **data engine**, not an X-specific scraper, bookmarking app, Obsidian plugin or universal scraping bypass. An optional [X For You adapter](examples/x-for-you/README.md) is implemented for GetXAPI, disabled until explicit local account/provider approval. Its actual personalized feed access has **not** been verified.
 
 ## Quick start — one file, zero setup for the offline demo
 

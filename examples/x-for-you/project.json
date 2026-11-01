@@ -1,0 +1,13 @@
+{
+  "id": "x-for-you-resources",
+  "name": "X For You resource discovery (requires local account setup)",
+  "sources": [{"id":"x-for-you","adapter":"x-for-you","config":{"accountId":"1234567890","pagesPerRun":1}}],
+  "pipeline": ["x-discovery", "public-metadata"],
+  "evaluator": "keyword",
+  "policy": {
+    "includeKeywords": ["react", "frontend", "css", "gsap", "motion", "typography", "design system", "open source"],
+    "excludeKeywords": ["sponsored", "giveaway"],
+    "minimumScore": 50
+  },
+  "outputs": []
+}

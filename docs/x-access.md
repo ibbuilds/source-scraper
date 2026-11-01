@@ -1,6 +1,8 @@
 # X "For you" provider feasibility (2026-10-23)
 
-**Status: BLOCKED / NOT INTEGRATED.** No actual user feed was accessed in development.
+**Status: optional GetXAPI adapter implemented; live acceptance pending.** No actual user feed was accessed in development. See the [implementation plan](x-feed-implementation-plan.md) and [disabled-by-default example](../examples/x-for-you/README.md).
+
+The `x-for-you` adapter targets GetXAPI's documented home-timeline endpoint with `following:false`. This is a third-party provider claim, not official X API support or a verified personalized read. It requires an explicit local grant, provider key and owner-supplied account session. No credentials are extracted from a browser or read from project JSON. Development tests use synthetic responses only. Live activation would disclose the account session to GetXAPI and incur request charges, so it remains a separate user decision.
 
 - The official timeline documentation describes the home endpoint as reverse chronological, from followed accounts, and explicitly excludes algorithmic ranking. It is not the personalized ranked "For you" feed.
 - X also documents an official hosted MCP endpoint through its `xurl mcp` bridge. Its listed API capabilities include search, users/timelines, bookmarks, trends and Articles. That transport does not establish access to personalized For You ranking.

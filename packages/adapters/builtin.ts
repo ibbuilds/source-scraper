@@ -7,6 +7,7 @@ import {mcpStdioSource} from "./mcp-stdio.ts";
 import {jsonSnapshotSource,publicJsonSource} from "./snapshots.ts";
 import {publicProductSource} from "./product-jsonld.ts";
 import {normalizeUrl} from "../core/url.ts";
+import {xForYouSource} from "./x-for-you.ts";
 
 function path(config:Record<string,unknown>):string{
   if(typeof config.path!=="string"||!config.path.trim())throw new Error("This adapter requires a local path");
@@ -65,4 +66,4 @@ const rss:SourceAdapter={
   }
 };
 export const builtinSources:Extension={apiVersion:1,
-  adapters:[jsonFile,jsonSnapshotSource,rss,publicJsonSource,publicProductSource,mcpStdioSource]};
+  adapters:[jsonFile,jsonSnapshotSource,rss,publicJsonSource,publicProductSource,mcpStdioSource,xForYouSource]};
