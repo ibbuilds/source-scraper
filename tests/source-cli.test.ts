@@ -145,3 +145,17 @@ test("standalone CLI refuses unsafe options and never silently creates a DB for 
       "Collection must never implicitly deliver configured external outputs");
   }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+test("failed collection keeps JSON details and provides a nonempty stderr summary",()=>{
+  const root=mkdtempSync(join(tmpdir(),"source-scraper-failed-summary-"));
+  try{
+    const dir=join(root,"starter");
+    asJson(["init","--dir",dir]);
+    rmSync(join(dir,"observations.json"));
+    const response=invoke(["run","--config",join(dir,"project.json")],false);
+    assert.match(response.stderr,/collection failed in 1 source\(s\)/);
+    assert.equal(JSON.parse(response.stdout).result.success,false);
+    assert.equal(JSON.parse(response.stdout).result.runs[0].status,"failed");
+    assert.ok(!response.stderr.includes(root),"stderr must not duplicate private error paths");
+  }finally{rmSync(root,{recursive:true,force:true});}
+});

@@ -81,7 +81,9 @@ class StdioPeer {
   private stopping=false;
   private timeout:ReturnType<typeof setTimeout>;
   private abort:()=>void;
-  constructor(config:ReturnType<typeof options>,signal:AbortSignal){
+  private safeErrorCodes:ReadonlySet<string>;
+  constructor(config:ReturnType<typeof options>,signal:AbortSignal,safeErrorCodes:ReadonlySet<string>){
+    this.safeErrorCodes=safeErrorCodes;
     const allowed=["PATH","HOME","USERPROFILE","SYSTEMROOT","WINDIR","TMP","TEMP","TMPDIR",
       "APPDATA","LOCALAPPDATA","XDG_RUNTIME_DIR","XDG_CONFIG_HOME","XDG_CACHE_HOME","LANG","LC_ALL"];
     const env:NodeJS.ProcessEnv={};
@@ -130,7 +132,9 @@ class StdioPeer {
       this.pending.delete(id);
       if(handler.timer)clearTimeout(handler.timer);
       if(response.error){
-        handler.reject(new Error("MCP request failed: "+String(record(response.error).code??"protocol error")));
+        const error=record(response.error),message=error.message;
+        const safe=typeof message==="string"&&this.safeErrorCodes.has(message)?": "+message:"";
+        handler.reject(new Error("MCP request failed: "+String(error.code??"protocol error")+safe));
       }else handler.resolve(response.result);
     }
   }
@@ -208,11 +212,12 @@ function parseToolResponse(raw:unknown,limit:number,mapping?:McpResultMapping):O
     nextCursor:typeof nextCursor==="string"?nextCursor:undefined
   };
 }
-export const mcpStdioSource:SourceAdapter={
+/** Only trusted callers can opt into exact, non-sensitive error codes. */
+export function createMcpStdioSource(safeErrorCodes:ReadonlySet<string>=new Set()):SourceAdapter{return {
   id:"mcp-stdio",
   async collect({source,cursor,limit,signal}){
     const config=options(source.config);
-    const peer=new StdioPeer(config,signal);
+    const peer=new StdioPeer(config,signal,safeErrorCodes);
     try{
       const metadata={
         "io.modelcontextprotocol/protocolVersion":"2026-07-28",
@@ -269,4 +274,5 @@ export const mcpStdioSource:SourceAdapter={
       return parseToolResponse(response,limit,config.mapping);
     }finally{peer.close();}
   }
-};
+};}
+export const mcpStdioSource=createMcpStdioSource();

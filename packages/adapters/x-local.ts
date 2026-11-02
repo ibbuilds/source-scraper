@@ -3,7 +3,7 @@ import {existsSync,lstatSync,mkdirSync,readFileSync,writeFileSync} from "node:fs
 import {homedir} from "node:os";
 import {isAbsolute,join} from "node:path";
 import {X_LOCAL_WORKER as worker} from "./x-local-worker.ts";
-import {mcpStdioSource} from "./mcp-stdio.ts";
+import {createMcpStdioSource} from "./mcp-stdio.ts";
 import {normalizeUrl,isXUrl,safeHostname} from "../core/url.ts";
 import type {JsonRecord,SourceAdapter,SourceContext,ObservationPage} from "../sdk/contracts.ts";
 
@@ -25,6 +25,11 @@ function workerPath():string{
   if(lstatSync(path).isSymbolicLink()||createHash("sha256").update(readFileSync(path)).digest("hex")!==digest)throw Error("X_LOCAL_WORKER_CHANGED");
   return path;
 }
+const safeWorkerErrors=new Set(["X_LOCAL_SESSION_REQUIRED","X_LOCAL_LIBRARY_VERSION",
+  "X_LOCAL_DESTINATION_DENIED","X_LOCAL_OPERATION_DENIED","X_LOCAL_ACCOUNT_MISMATCH",
+  "X_LOCAL_PAGE_OVERFLOW","X_LOCAL_INPUT_LIMIT","X_LOCAL_METHOD_DENIED","X_LOCAL_READ_FAILED",
+  ...Array.from({length:300},(_,i)=>"X_LOCAL_HTTP_"+(i+300))]);
+const localWorkerSource=createMcpStdioSource(safeWorkerErrors);
 export function createXLocalSource(options:{collect?:(context:SourceContext)=>Promise<ObservationPage>;workerPath?:()=>string}={}):SourceAdapter{
   const budgets=new WeakMap<AbortSignal,Map<string,number>>();
   return {id:"x-for-you-local",async collect(context){
@@ -39,12 +44,12 @@ export function createXLocalSource(options:{collect?:(context:SourceContext)=>Pr
     let used=budgets.get(signal);if(!used){used=new Map();budgets.set(signal,used);}
     const count=used.get(source.id)??0;if(count>=pagesPerRun)throw Error("X_LOCAL_WINDOW_COMPLETE");used.set(source.id,count+1);
     let page:ObservationPage;
-    try{page=await (options.collect??mcpStdioSource.collect.bind(mcpStdioSource))({...context,source:{id:source.id,adapter:"mcp-stdio",config:{
+    try{page=await (options.collect??localWorkerSource.collect.bind(localWorkerSource))({...context,source:{id:source.id,adapter:"mcp-stdio",config:{
       command:python,args:["-I",(options.workerPath??workerPath)()],tool:"read_x_for_you",protocol:"legacy",
       arguments:{accountId},passEnv:["SOURCE_SCRAPER_X_ACCOUNT_SESSION","SOURCE_SCRAPER_X_CSRF"],timeoutMs:30000}}});}
     catch(error){
       const code=error instanceof Error?/X_LOCAL_[A-Z0-9_]+/.exec(error.message)?.[0]:undefined;
-      throw Error(code||"X_LOCAL_READ_FAILED: check local session/runtime; no automatic login, challenge bypass or paid fallback");
+      throw Error(code&&safeWorkerErrors.has(code)?code:"X_LOCAL_READ_FAILED: check local session/runtime; no automatic login, challenge bypass or paid fallback");
     }
     const clean=(s:string)=>[token,csrf].reduce((value,secret)=>value.split(secret).join("[redacted]"),s);
     const observations=page.observations.map(item=>{
