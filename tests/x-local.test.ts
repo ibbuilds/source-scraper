@@ -6,7 +6,7 @@ import type {SourceContext,ObservationPage} from "../packages/sdk/contracts.ts";
 
 const source={id:"local-x",adapter:"x-for-you-local",config:{accountId:"1234567890",pagesPerRun:1}};
 const observed={id:"101",type:"x-post",title:"React motion",text:"React motion",url:"https://x.com/example/status/101",
-  urls:["https://example.org/tool","https://t.co/short","http://127.0.0.1/private"],attributes:{author:"example",private:"must-not-persist"}};
+  urls:["https://example.org/tool","https://t.co/short","http://127.0.0.1/private"],attributes:{metrics:{likes:120,reposts:20,replies:5,quotes:2,views:9000,private:999},author:"example",private:"must-not-persist"}};
 async function environment(work:()=>Promise<void>){
   const values={SOURCE_SCRAPER_X_LOCAL_APPROVED:"local-read-only",SOURCE_SCRAPER_X_ACCOUNT_SESSION:"synthetic-account-session",SOURCE_SCRAPER_X_CSRF:"synthetic-csrf-value",SOURCE_SCRAPER_X_PYTHON:process.execPath};
   const prior=Object.fromEntries(Object.keys(values).map(key=>[key,process.env[key]]));Object.assign(process.env,values);
@@ -37,6 +37,7 @@ test("free X uses the fixed worker/tool with only account-session environment, n
   assert.equal(result.hasMore,false);assert.equal(result.nextCursor,"continue");
   assert.deepEqual(result.observations[0].urls,["https://example.org/tool"]);
   assert.equal(result.observations[0].attributes?.collector,"twifork");
+  assert.deepEqual(result.observations[0].attributes?.metrics,{likes:120,reposts:20,replies:5,quotes:2,views:9000,engagements:147});
   assert.ok(!JSON.stringify(result).includes("must-not-persist"));
 }));
 
@@ -62,3 +63,10 @@ test("free X refuses credential cursors, mismatched posts and private-library er
   await assert.rejects(adapter.collect(context()),error=>!String(error).includes("synthetic-account-session"));
   assert.ok(X_LOCAL_WORKER.includes("client.get_timeline("));assert.ok(!X_LOCAL_WORKER.includes("client.get_latest_timeline("));
 }));
+
+ test("X counter normalization never promotes unknown counters to zero or accepts private fields",async()=>{
+ const {xMetrics}=await import("../packages/adapters/x-metrics.ts");
+ assert.deepEqual(xMetrics({likes:0,reposts:1,replies:2,quotes:3,views:50,private:100}),{likes:0,reposts:1,replies:2,quotes:3,views:50,engagements:6});
+ for(const value of ["100",null,NaN,Infinity,-1,true,2**54])assert.deepEqual(xMetrics({likes:value}),{});
+ assert.deepEqual(xMetrics({likes:100}),{likes:100});
+});

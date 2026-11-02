@@ -5,7 +5,7 @@ import type {compileCollectionFilters} from "../sdk/collection-filters.ts";
 /** Filtering precedes paging. One streaming pass, including multi-page exports. */
 export function createFilteredQuery(store:KnowledgeStore,projectId:string,
   filter:ReturnType<typeof compileCollectionFilters>,opts:{limit:number;offset:number;q?:string;type?:string;minScore?:number}){
-  const report={version:1,profileHash:filter.hash,sourceIds:filter.sourceIds,
+  const report={version:1,profileHash:filter.hash,sourceIds:filter.sourceIds,evaluatedAt:filter.evaluatedAt,
     examined:0,matchedInScan:0,rejected:0,returned:0,completeScan:false,rejectionReasons:{} as Record<string,number>};
   function* records():IterableIterator<KnowledgeEntity>{
     for(const entity of store.iterateEntities(projectId,opts)){

@@ -60,6 +60,18 @@ async def collect(arguments):
                 "urls": [item.get("expanded_url", "") for item in (tweet.urls or []) if item.get("expanded_url")],
                 "media": [media.source_url for media in (tweet.media or []) if getattr(media, "source_url", None)],
                 "attributes": {"author": tweet.user.screen_name, "collector": "twifork", "feed": "for-you"}}
+            # Fixed public counters, without copying the library's raw object.
+            metrics = {}
+            for name, attribute in (("likes", "favorite_count"), ("reposts", "retweet_count"), ("replies", "reply_count"), ("quotes", "quote_count"), ("views", "view_count")):
+                try:
+                    value = getattr(tweet, attribute, None)
+                except (KeyError, AttributeError, TypeError):
+                    value = None
+                if isinstance(value, str) and value.isascii() and value.isdecimal() and len(value) <= 16:
+                    value = int(value)
+                if type(value) is int and 0 <= value <= 9007199254740991:
+                    metrics[name] = value
+            item["attributes"]["metrics"] = metrics
             if tweet.created_at:
                 item["occurredAt"] = parsedate_to_datetime(tweet.created_at).astimezone(timezone.utc).isoformat()
             observations.append(item)

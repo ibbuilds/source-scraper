@@ -1,3 +1,4 @@
+import {xMetrics} from "./x-metrics.ts";
 import https from "node:https";
 import {normalizeUrl,isXUrl,safeHostname} from "../core/url.ts";
 import {validateObservation} from "../core/project-config.ts";
@@ -106,7 +107,8 @@ export function normalizeXPost(raw:unknown,secrets:readonly string[]=[]):Observa
   const occurredAt=typeof date==="string"&&Number.isFinite(Date.parse(date))?new Date(date).toISOString():undefined;
   return validateObservation({id:post.id,type:"x-post",title:clean(post.text).slice(0,180)||"X post "+post.id,
     text:clean(post.text),url:"https://x.com/"+author.userName+"/status/"+post.id,urls:[...urls].slice(0,100),media:[...media],occurredAt,
-    attributes:{author:clean(author.userName),provider:"getxapi",feed:"for-you",feedVerification:"provider-reported"}});
+    attributes:{author:clean(author.userName),provider:"getxapi",feed:"for-you",feedVerification:"provider-reported",
+      metrics:xMetrics({likes:post.likeCount,reposts:post.retweetCount,replies:post.replyCount,quotes:post.quoteCount,views:post.viewCount})}});
 }
 /** A run samples a bounded window; a saved provider cursor resumes the next window. */
 export function createXForYouSource(options:{credentials?:()=>XCredentials;transport?:XTransport}={}):SourceAdapter{
