@@ -77,6 +77,9 @@ export class KnowledgeStore extends Store {
         this.db.exec("ALTER TABLE "+table+" ADD COLUMN "+column+" "+definition);
       }
     }
+    // Create after additive column migrations so pre-v0.9 libraries also reopen.
+    this.db.exec("CREATE INDEX IF NOT EXISTS kb_filter_mentions "+
+      "ON kb_mentions(project_id,entity_key,active,connection_id,item_id)");
     // Older libraries add the complete observation JSON column above. The
     // partial index avoids scanning fully restored libraries on each reopen.
     this.db.exec("CREATE INDEX IF NOT EXISTS kb_missing_observation_json "+

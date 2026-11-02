@@ -1,3 +1,4 @@
+import {xMetrics} from "./x-metrics.ts";
 import {createHash} from "node:crypto";
 import {existsSync,lstatSync,mkdirSync,readFileSync,writeFileSync} from "node:fs";
 import {homedir} from "node:os";
@@ -58,7 +59,7 @@ export function createXLocalSource(options:{collect?:(context:SourceContext)=>Pr
       const urls=(item.urls||[]).flatMap(value=>{try{const normalized=normalizeUrl(value),host=safeHostname(normalized);return isXUrl(normalized)||host==="t.co"||[token,csrf].some(s=>normalized.includes(s))?[]:[normalized];}catch{return [];}});
       const media=(item.media||[]).filter(value=>{try{return new URL(value).hostname==="pbs.twimg.com"&&![token,csrf].some(secret=>value.includes(secret));}catch{return false;}});
       return {...item,title:clean(item.title||"X post"),text:clean(item.text||""),urls,media,
-        attributes:{author:clean(String(item.attributes?.author||"")),collector:"twifork",feed:"for-you",liveVerification:"not-attested-by-code"}};
+        attributes:{author:clean(String(item.attributes?.author||"")),collector:"twifork",feed:"for-you",liveVerification:"not-attested-by-code",metrics:xMetrics(item.attributes?.metrics)}};
     });
     if(page.nextCursor&&([token,csrf].some(s=>page.nextCursor!.includes(s))||page.nextCursor.length>4000||/[\u0000-\u001f]/.test(page.nextCursor)))throw Error("X_LOCAL_CURSOR_INVALID");
     return {observations,nextCursor:page.nextCursor,hasMore:page.hasMore&&count+1<pagesPerRun};

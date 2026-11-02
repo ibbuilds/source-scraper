@@ -114,3 +114,69 @@ Changing a filter changes the next explicit query or export without re-fetching
 sources. Excluded evidence, human reviews, recommendations, cursors and notes
 remain intact. The existing keyword score stays a separate relevance heuristic;
 editorial quality and final selection are not computed by this filter layer.
+
+
+## Admission thresholds: engagement and publication dates
+
+Both clauses also accept up to 16 `numericRanges` and 16 `dateRanges`.
+Rules in a clause combine with AND, alongside its terms, exclusions and source
+scope. Numeric bounds are inclusive and require a finite JSON number. Missing,
+null, string or boolean values do not pass; missing is never assumed zero.
+Dates require a real ISO timestamp with an explicit timezone. `from` and `to`
+are inclusive instants. `maxAgeDays` defines a rolling number of 24-hour days
+ending at the query's single `evaluatedAt` instant, excluding future dates.
+The same active supporting post must meet the terms, date and engagement rules.
+
+Example of a link-discovery profile; the thresholds are illustrative and must
+be selected by the user for their sources:
+
+```json
+{
+  "version": 1,
+  "entity": {"types": ["web-resource"], "requiredFields": ["url"]},
+  "observation": {
+    "includeTerms": ["design system", "component library"],
+    "excludeTerms": ["giveaway"],
+    "numericRanges": [
+      {"field": "attributes.metrics.likes", "min": 100},
+      {"field": "attributes.metrics.engagements", "min": 150}
+    ],
+    "dateRanges": [{"field": "occurredAt", "maxAgeDays": 60}]
+  }
+}
+```
+
+For a fixed period, replace the rolling rule with (for example)
+`{"field":"occurredAt","from":"2026-10-01T00:00:00-07:00","to":"2026-10-31T23:59:59.999-07:00"}`.
+The orchestrator must resolve phrases such as "last month" to the user's intended
+calendar interval and timezone. There is no implicit universal topic, threshold,
+time horizon or silent date default.
+
+The local X adapter retains the public counters X supplies under
+`attributes.metrics`: `likes`, `reposts`, `replies`, `quotes`, `views`.
+`engagements` is likes + reposts + replies + quotes, only when all four are known;
+views are not interactions. These are observed publication counters, not votes
+for a particular linked tool, independent audience validation, engagement rate
+or proof of quality. Historical records collected without these counters fail
+counter rules until the source actually supplies an updated observation.
+
+This extension requires CLI capability `candidate-thresholds-v1`. The independent
+client fails explicitly with an older CLI rather than ignoring thresholds.
+
+## Bulk processing and honest limits
+
+The engine consumes pages (up to 500 observations), commits each page atomically
+and resumes from checkpoints. It filters locally in streaming passes, without
+asking ChatGPT to classify each publication or holding an entire export in RAM.
+External enrichment is optional and has its own request budget; it is not
+performed as part of a filter query. Query output is bounded to 500 records per
+call, ordinary exports to 100,000 per invocation; these are delivery bounds, not
+the database's retained record count.
+
+`node --experimental-strip-types scripts/bench-filters.mjs 100000 --thresholds`
+reproduces offline ingestion and three complete scans per profile, validating
+counts and identities with no external network traffic. It reports every sample,
+machine/runtime, database size and memory. These local measurements do not
+predict X network throughput. For You remains an algorithmic, paginated sample:
+date filtering does not grant exhaustive historical access. The X adapter keeps
+its configured 1–10 page window and preserves cursors between explicit runs.

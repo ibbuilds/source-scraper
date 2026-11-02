@@ -35,7 +35,7 @@ class HTTP:
 class Result(list):
     def __init__(self):
         super().__init__([types.SimpleNamespace(id="101", full_text="React motion", text="React", user=types.SimpleNamespace(screen_name="example"),
-            urls=[{"expanded_url": "https://example.org/tool"}], media=[], created_at="Sun Nov 01 12:00:00 +0000 2026")])
+            favorite_count=120, retweet_count=20, reply_count=5, quote_count=2, view_count="9000", urls=[{"expanded_url": "https://example.org/tool"}], media=[], created_at="Sun Nov 01 12:00:00 +0000 2026")])
         self.next_cursor = None
         self._Result__overflow = []
 
@@ -75,7 +75,19 @@ class BridgeTests(unittest.TestCase):
         result=self.collect();self.assertEqual(result["observations"][0]["id"],"101")
         self.assertEqual(result["observations"][0]["occurredAt"],"2026-11-01T12:00:00+00:00")
         self.assertFalse(result["hasMore"]);self.assertNotIn("nextCursor",result)
+        self.assertEqual(result["observations"][0]["attributes"]["metrics"], {"likes":120,"reposts":20,"replies":5,"quotes":2,"views":9000})
         self.assertTrue(any(url.endswith("/HomeTimeline") for _,url,_ in EVENTS))
+    def test_missing_and_invalid_counters_stay_missing(self):
+        original = Result.__init__
+        def invalid(result):
+            original(result)
+            result[0].favorite_count = None
+            result[0].retweet_count = True
+            result[0].reply_count = -1
+            result[0].quote_count = "bad"
+            result[0].view_count = "9007199254740992"
+        with patch.object(Result, "__init__", invalid):
+            self.assertEqual(self.collect()["observations"][0]["attributes"]["metrics"], {})
     def test_bootstrap_gets_no_account_cookies(self):
         self.collect();self.assertIn(("public","https://abs.twimg.com/bootstrap.js",[]),EVENTS)
     def test_account_mismatch_stops_before_timeline(self):

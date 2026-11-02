@@ -121,3 +121,70 @@ test("source selection contacts only registered selected sources, before any sta
     await runProject(db,project,registry);assert.deepEqual(calls,["alpha"]);
   }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+test("numeric thresholds reject missing, coerced and non-finite counters; bounds are inclusive",()=>{
+  const f={version:1,observation:{numericRanges:[{field:"attributes.metrics.likes",min:100,max:1000}]}};
+  const check=(value:unknown)=>match(f,{},[{sourceId:"alpha",observation:{attributes:{metrics:{likes:value}}}}]);
+  for(const value of [100,1000])assert.equal(check(value),true);
+  for(const value of [99,1001,undefined,null,"500",false,NaN,Infinity])assert.equal(check(value),false);
+  for(const range of [{field:"attributes.metrics.likes"},{field:"attributes.metrics.likes",min:"100"},
+    {field:"attributes.metrics.likes",min:Infinity},{field:"attributes.metrics.likes",min:20,max:10},
+    {field:"attributes.__proto__.likes",min:0}])assert.throws(()=>parseCollectionFilters({version:1,observation:{numericRanges:[range]}}),/INVALID_FILTER/);
+});
+
+test("date and rolling-age filters use one clock, explicit zones and the same supporting post as thresholds",()=>{
+  const at=Date.parse("2026-11-02T12:00:00Z");
+  const filter=compileCollectionFilters(sources,{version:1,entity:{types:["web-resource"],requiredFields:["url"]},
+    observation:{dateRanges:[{field:"occurredAt",maxAgeDays:30}],numericRanges:[{field:"attributes.metrics.likes",min:100}]}},undefined,at);
+  const entity={type:"web-resource",url:"https://example.org/tool"};
+  const post=(occurredAt:unknown,likes=100)=>({sourceId:"alpha",observation:{occurredAt,attributes:{metrics:{likes}}}});
+  assert.equal(filter.match(entity,()=>[post("2026-10-03T12:00:00Z")]).matched,true);
+  assert.equal(filter.match(entity,()=>[post("2026-11-02T13:00:00+01:00")]).matched,true);
+  for(const date of [undefined,"2026-11-01","bad","2026-02-30T12:00:00Z","2026-10-03T11:59:59Z","2026-11-02T12:00:01Z"])
+    assert.equal(filter.match(entity,()=>[post(date)]).matched,false);
+  assert.equal(filter.match(entity,()=>[post("2026-11-01T12:00:00Z",5),post("2026-09-01T12:00:00Z",1000)]).matched,false,"cannot borrow likes from an old post");
+  const range=compileCollectionFilters(sources,{version:1,observation:{dateRanges:[{field:"occurredAt",from:"2026-10-01T00:00:00Z",to:"2026-10-31T23:59:59Z"}]}},undefined,at);
+  assert.equal(range.match(entity,()=>[post("2026-10-31T23:59:59Z")]).matched,true);
+  assert.equal(range.match(entity,()=>[post("2026-11-01T00:00:00Z")]).matched,false);
+  for(const rule of [{field:"occurredAt"},{field:"occurredAt",maxAgeDays:0},{field:"occurredAt",maxAgeDays:"30"},
+    {field:"occurredAt",from:"2026-02-30T00:00:00Z"},{field:"occurredAt",from:"2026-11-01T00:00:00"},
+    {field:"occurredAt",from:"2026-11-01T00:00:00Z",to:"2026-10-01T00:00:00Z"}])
+    assert.throws(()=>parseCollectionFilters({version:1,observation:{dateRanges:[rule]}}),/INVALID_FILTER/);
+  assert.equal(filter.evaluatedAt,"2026-11-02T12:00:00.000Z");
+});
+
+test("date and engagement CLI filters select links in bulk without deleting raw observations",async()=>{
+  const root=mkdtempSync(join(tmpdir(),"ss-thresholds-"));
+  try{
+    const source=join(root,"data.json"),config=join(root,"project.json"),db=join(root,".source-scraper.sqlite");
+    const input=Array.from({length:1200},(_,i)=>({id:String(i),type:"source-post",text:"Design system",
+      url:"https://example.org/post/"+i,urls:["https://example.org/tool/"+i],
+      occurredAt:i%3===0?"2026-10-15T12:00:00Z":"2026-09-01T12:00:00Z",
+      attributes:i%2===0?{metrics:{likes:150}}:{}}));
+    writeFileSync(source,JSON.stringify(input));
+    const profile={version:1,entity:{types:["web-resource"],requiredFields:["url"]},observation:{includeTerms:["design system"],
+      numericRanges:[{field:"attributes.metrics.likes",min:100}],dateRanges:[{field:"occurredAt",from:"2026-10-01T00:00:00Z",to:"2026-10-31T23:59:59Z"}]}};
+    writeFileSync(config,JSON.stringify({id:"threshold-example",name:"Threshold example",sources:[{id:"alpha",adapter:"json-snapshot",config:{path:source}}],pipeline:["linked-resources"],outputs:[],filters:profile}));
+    assert.equal((await runProject(db,parseProject(JSON.parse(readFileSync(config,"utf8"))),createDefaultRegistry(),{pageSize:500})).success,true);
+    const result=spawnSync(process.execPath,[resolve("dist/source-scraper.mjs"),"query","--config",config,"--limit","500"],{encoding:"utf8",timeout:30000});
+    assert.equal(result.status,0,result.stderr);const parsed=JSON.parse(result.stdout);
+    assert.equal(parsed.count,200);assert.equal(parsed.filtering.examined,1200);assert.equal(parsed.filtering.completeScan,true);
+    assert.ok(parsed.records.every((r:any)=>r.type==="web-resource"&&Number(r.url.split("/").pop())%6===0));
+    const store=new KnowledgeStore(db);try{assert.equal(store.db.prepare("SELECT COUNT(*) count FROM kb_observations").get()?.count,1200);}finally{store.close();}
+  }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test("source filter lookup uses an entity/active/order index instead of scanning the whole project's mentions",()=>{
+  const root=mkdtempSync(join(tmpdir(),"ss-filter-index-"));
+  const store=new KnowledgeStore(join(root,"store.sqlite"));
+  try{
+    let plan:Record<string,unknown>[]=[];
+    const receiver={prepareCached(sql:string){return {iterate(...args:unknown[]){
+      plan=store.db.prepare("EXPLAIN QUERY PLAN "+sql).all(...args as never[]) as Record<string,unknown>[];return [];
+    }};}};
+    KnowledgeStore.prototype.filterObservations.call(receiver as unknown as KnowledgeStore,"test-project","https://example.org/tool").next();
+    const details=plan.map(row=>String(row.detail)).join("\n");
+    assert.match(details,/kb_filter_mentions.*project_id=\? AND entity_key=\? AND active=\?/);
+    assert.doesNotMatch(details,/SCAN m|TEMP B-TREE/);
+  }finally{store.close();rmSync(root,{recursive:true,force:true});}
+});
