@@ -65,6 +65,7 @@ export interface ProjectPolicy {
   minimumScore:number;
 }
 export interface ProjectDefinition {
+  filters?:import("./collection-filters.ts").CollectionFilters;
   id:string;
   name:string;
   sources:ProjectSource[];

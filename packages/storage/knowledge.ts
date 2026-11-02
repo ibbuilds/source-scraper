@@ -441,6 +441,40 @@ export class KnowledgeStore extends Store {
       Number.isFinite(opts.minScore)?opts.minScore!:0,limit,offset) as Row[];
     return rows.map(asKnowledge);
   }
+  /** Stream indexed candidates without imposing pagination before declarative filters. */
+  *iterateEntities(projectId:string,opts:{type?:string;q?:string;minScore?:number}={}):IterableIterator<KnowledgeEntity>{
+    const q=opts.q?"%"+opts.q.slice(0,100)+"%":null;
+    const rows=this.prepareCached(
+      "SELECT e.project_id,e.entity_key,e.type,e.title,e.url,e.attributes_json,e.updated_at,"+
+      "a.category,a.score,a.confidence,a.reasons_json,"+
+      "COALESCE((SELECT CASE WHEN r.decision IN ('approved','excellent') THEN 'approved' "+
+      "WHEN r.decision='rejected' THEN 'rejected' ELSE 'pending' END FROM kb_reviews r "+
+      "WHERE r.project_id=e.project_id AND r.entity_key=e.entity_key ORDER BY r.id DESC LIMIT 1),'pending') review,"+
+      "(SELECT COUNT(*) FROM kb_mentions m WHERE m.project_id=e.project_id AND m.entity_key=e.entity_key) observation_count "+
+      "FROM kb_entities e LEFT JOIN kb_assessments a ON a.project_id=e.project_id AND a.entity_key=e.entity_key "+
+      "WHERE e.project_id=? AND (? IS NULL OR e.type=?) AND (? IS NULL OR e.title LIKE ? OR e.entity_key LIKE ?) "+
+      "AND COALESCE(a.score,0)>=? ORDER BY COALESCE(a.score,0) DESC,e.entity_key"
+    ).iterate(projectId,opts.type||null,opts.type||null,q,q,q,
+      Number.isFinite(opts.minScore)?opts.minScore!:0) as IterableIterator<Row>;
+    for(const row of rows)yield asKnowledge(row);
+  }
+  sourceIds(projectId:string):string[]{
+    return (this.prepareCached("SELECT connection_id FROM kb_connections WHERE project_id=? ORDER BY connection_id")
+      .all(projectId) as Row[]).map(row=>String(row.connection_id));
+  }
+  /** Exact retained active source snapshots; no 50-mention display truncation. */
+  *filterObservations(projectId:string,key:string):IterableIterator<{sourceId:string;observation:unknown}>{
+    const rows=this.prepareCached(
+      "SELECT m.connection_id,COALESCE(m.observation_json,o.observation_json) snapshot_json,"+
+      "o.item_id,o.type,o.title,o.text,o.url,o.attributes_json,o.media_json,o.occurred_at "+
+      "FROM kb_mentions m JOIN kb_observations o ON o.project_id=m.project_id AND o.connection_id=m.connection_id AND o.item_id=m.item_id "+
+      "WHERE m.project_id=? AND m.entity_key=? AND m.active=1 ORDER BY m.connection_id,m.item_id"
+    ).iterate(projectId,key) as IterableIterator<Row>;
+    for(const row of rows)yield {sourceId:String(row.connection_id),observation:typeof row.snapshot_json==="string"?
+      JSON.parse(row.snapshot_json):{id:row.item_id,type:row.type,title:row.title,text:row.text,url:row.url,
+        attributes:json(row.attributes_json,{}),media:json(row.media_json,[]),occurredAt:row.occurred_at}};
+  }
+
   getEntity(projectId:string,key:string):KnowledgeEntity|undefined{
     // Key may contain arbitrary URL punctuation: always parameterized.
     const rows=this.prepareCached(

@@ -1,4 +1,5 @@
 import {readFileSync} from "node:fs";
+import {parseCollectionFilters} from "../sdk/collection-filters.ts";
 import {dirname,resolve} from "node:path";
 import type {JsonRecord,JsonValue,ProjectDefinition,Observation,EntityDraft,Assessment} from "../sdk/contracts.ts";
 import {normalizeUrl} from "./url.ts";
@@ -200,6 +201,7 @@ export function parseProject(raw:unknown):ProjectDefinition{
   return {id:id(v.id,"project id"),name:string(v.name,"project name",200),sources:normalizedSources,
     pipeline:pipeline.map(x=>id(x,"processor id")),evaluator:id(evaluator,"evaluator id"),
     outputs:normalizedOutputs,entitySchemas:schemas,watch,
+    ...(v.filters===undefined?{}:{filters:parseCollectionFilters(v.filters,normalizedSources.map(s=>s.id))}),
     policy:{
       includeKeywords:normalizeKeywords(rules.includeKeywords??[],"include keywords"),
       excludeKeywords:normalizeKeywords(rules.excludeKeywords??[],"exclude keywords"),
