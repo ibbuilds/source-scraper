@@ -1,4 +1,5 @@
 import {acquireLock} from "./lock.ts";
+import {compileCollectionFilters} from "../sdk/collection-filters.ts";
 import {validateObservation,validateEntity,validateAssessment} from "./project-config.ts";
 import {KnowledgeStore} from "../storage/knowledge.ts";
 import type {Registry,ProjectDefinition,EntityDraft,Observation,Assessment,KnowledgeEntity} from "../sdk/contracts.ts";
@@ -60,9 +61,11 @@ async function processItem(project:ProjectDefinition,source:ProjectDefinition["s
  * resume from the last committed page.
  */
 export async function runProject(dbPath:string,project:ProjectDefinition,registry:Registry,opts:{
-  signal?:AbortSignal;pageSize?:number;maxPages?:number
+  signal?:AbortSignal;pageSize?:number;maxPages?:number;sourceIds?:string[]
 }={}):Promise<ProjectRun>{
   assertRegistered(project,registry);
+  const selectedSources=compileCollectionFilters(project.sources.map(s=>s.id),project.filters,
+    opts.sourceIds===undefined?undefined:{version:1,sourceIds:opts.sourceIds}).sourceIds;
   const pageSize=opts.pageSize??100,maxPages=opts.maxPages??100;
   if(!Number.isInteger(pageSize)||pageSize<1||pageSize>500||
     !Number.isInteger(maxPages)||maxPages<1||maxPages>1000)throw new Error("Invalid execution page bounds");
@@ -77,6 +80,7 @@ export async function runProject(dbPath:string,project:ProjectDefinition,registr
     store=new KnowledgeStore(dbPath);
     store.saveProject(project);
     for(const source of project.sources){
+      if(!selectedSources.includes(source.id))continue;
       let runId="";
       const stats:SourceRun={sourceId:source.id,runId:"",status:"success",
         observations:0,newEntities:0,duplicates:0};

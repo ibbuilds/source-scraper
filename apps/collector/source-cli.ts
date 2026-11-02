@@ -3,6 +3,8 @@
  * Commands emit a single JSON document (or opt-in NDJSON) on stdout.
  * No implicit vault writes, network notifications or external output adapters.
  */
+import {compileCollectionFilters} from "../../packages/sdk/collection-filters.ts";
+import {createFilteredQuery} from "../../packages/core/query-filters.ts";
 import {evidenceFingerprint,recordAgentAssessment,listAgentAssessments} from "../../packages/core/agent-assessment.ts";
 import {existsSync,mkdirSync,readFileSync,realpathSync,writeFileSync} from "node:fs";
 import {open as openFile,unlink} from "node:fs/promises";
@@ -47,10 +49,10 @@ const HELP=[
 const COMMAND_FLAGS:Record<string,string[]>={
   "assessment-record":["config","db","id","key","record-json"],
   "assessment-list":["config","db","id","key","limit","offset"],
-  init:["dir"],validate:["config","extension"],run:["config","db","extension","page-size","max-pages"],
-  projects:["db","config"],query:["db","config","id","dataset","limit","offset","search","type","min-score"],
+  init:["dir"],validate:["config","extension"],run:["config","db","extension","page-size","max-pages","source-ids-json"],
+  projects:["db","config"],query:["db","config","id","dataset","limit","offset","search","type","min-score","filters-json"],
   inspect:["db","config","id","key"],review:["db","config","id","key","decision","reason"],
-  reprocess:["db","config","extension"],export:["db","config","id","dataset","format","out","limit","offset","compact","keys-json"],
+  reprocess:["db","config","extension"],export:["db","config","id","dataset","format","out","limit","offset","compact","keys-json","filters-json"],
   adapters:["extension"],version:[]
 };
 function argumentsToFlags(args:readonly string[],allowed:readonly string[]):Flags{
@@ -158,10 +160,12 @@ function exportedEntity(store:KnowledgeStore,id:string,entity:KnowledgeEntity,co
  * Create-only file exports are cleaned up on failures; existing files survive.
  */
 async function streamExport(store:KnowledgeStore,id:string,dataset:DataSet,flags:Flags,
-  limit:number,offset:number,compact:boolean,format:"json"|"ndjson"):Promise<number>{
+  limit:number,offset:number,compact:boolean,format:"json"|"ndjson",filter:ReturnType<typeof compileCollectionFilters>):Promise<number>{
   const path=flags.get("out")?resolve(required(flags,"out")):undefined;
   const handle=path?await openFile(path,"wx",0o600):undefined;
   let completed=false,records=0,remaining=limit,current=offset;
+  const filtered=filter.active&&dataset==="entities"?createFilteredQuery(store,id,filter,{limit,offset}):undefined;
+  if(filtered)store.db.exec("BEGIN");
   const write=async(content:string):Promise<void>=>{
     if(handle)await handle.writeFile(content);
     else await new Promise<void>((resolveWrite,rejectWrite)=>{
@@ -175,7 +179,9 @@ async function streamExport(store:KnowledgeStore,id:string,dataset:DataSet,flags
     }
     while(remaining>0){
       const size=Math.min(500,remaining);
-      const page=readPage(store,id,dataset,size,current,flags);
+      const page:unknown[]=[];
+      if(filtered){for(let i=0;i<size;i++){const next=filtered.records.next();if(next.done)break;page.push(next.value);}}
+      else page.push(...readPage(store,id,dataset,size,current,flags));
       if(!page.length)break;
       const serialized=page.map(item=>{
         const record=dataset==="entities"?
@@ -196,7 +202,7 @@ async function streamExport(store:KnowledgeStore,id:string,dataset:DataSet,flags
     completed=true;
     return records;
   }finally{
-    try{await handle?.close();}
+    try{try{filtered?.records.return?.();if(filtered)store.db.exec("COMMIT");}finally{await handle?.close();}}
     finally{
       if(!completed&&path)await unlink(path).catch(()=>{});
     }
@@ -222,7 +228,7 @@ function init(dir:string):void{
     observationsFile:input,databasePath:join(root,".source-scraper.sqlite"),synthetic:true});
 }
 async function execute(command:string,flags:Flags):Promise<void>{
-  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1"]});return;}
+  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1","collection-filters-v1"]});return;}
   if(command==="init"){init(flags.get("dir")||"./source-scraper-project");return;}
   if(command==="adapters"){
     const r=createDefaultRegistry(flags.get("extension")?[resolve(required(flags,"extension"))]:[]);
@@ -250,7 +256,8 @@ async function execute(command:string,flags:Flags):Promise<void>{
     if(command==="run"){
       const result=await runProject(db,project,registry,{
         pageSize:integer(flags,"page-size",100,1,500),
-        maxPages:integer(flags,"max-pages",100,1,1000)
+        maxPages:integer(flags,"max-pages",100,1,1000),
+        sourceIds:flags.has("source-ids-json")?JSON.parse(required(flags,"source-ids-json")):undefined
       });
       output({schemaVersion:DATA_VERSION,command,id,result});
       if(!result.success){
@@ -275,7 +282,7 @@ async function execute(command:string,flags:Flags):Promise<void>{
     finally{store.close();}
     return;
   }
-  const {id,db}=projectContext(flags,false);
+  const {id,db,project}=projectContext(flags,false);
   const store=openExisting(db);
   try{
     if(!store.listProjects().some(row=>row.id===id)){
@@ -297,12 +304,23 @@ async function execute(command:string,flags:Flags):Promise<void>{
       output({schemaVersion:DATA_VERSION,command,id,entity:result});
     }else if(command==="query"||command==="export"){
       const dataset=toDataset(flags.get("dataset"));
+      if(flags.has("filters-json")&&dataset!=="entities")throw Error("Collection filters apply to entity candidates; raw evidence remains unfiltered");
+      const filter=compileCollectionFilters(project?.sources.map(s=>s.id)??store.sourceIds(id),project?.filters,
+        flags.has("filters-json")?JSON.parse(required(flags,"filters-json")):undefined);
       const limit=integer(flags,"limit",command==="query"?100:100000,1,command==="query"?500:100000);
       const offset=integer(flags,"offset",0,0,1000000);
       if(command==="query"){
-        const records=readPage(store,id,dataset,limit,offset,flags);
-        output({schemaVersion:DATA_VERSION,command,dataset,projectId:id,limit,offset,
-          count:records.length,records});
+        if(filter.active&&dataset==="entities"){
+          store.db.exec("BEGIN");
+          try{
+            const query=createFilteredQuery(store,id,filter,{limit,offset,q:flags.get("search"),type:flags.get("type"),minScore:integer(flags,"min-score",0,0,100)});
+            const records=Array.from(query.records);
+            output({schemaVersion:DATA_VERSION,command,dataset,projectId:id,limit,offset,count:records.length,records,filtering:query.report});
+          }finally{store.db.exec("COMMIT");}
+        }else{
+          const records=readPage(store,id,dataset,limit,offset,flags);
+          output({schemaVersion:DATA_VERSION,command,dataset,projectId:id,limit,offset,count:records.length,records});
+        }
         return;
       }
       const format=flags.get("format")||"json";
@@ -311,13 +329,13 @@ async function execute(command:string,flags:Flags):Promise<void>{
         ["true","false"].includes(flags.get("compact")!)?flags.get("compact")==="true":
         (()=>{throw new Error("--compact must be true or false");})();
       if(flags.has("keys-json")){
-        if(dataset!=="entities"||format!=="json"||["out","limit","offset","compact"].some(flag=>flags.has(flag)))throw Error("Selected export requires entities JSON on stdout without paging/compact flags");
+        if(dataset!=="entities"||format!=="json"||["out","limit","offset","compact","filters-json"].some(flag=>flags.has(flag)))throw Error("Selected export requires entities JSON on stdout without paging/compact flags");
         const keys:unknown=JSON.parse(required(flags,"keys-json"));
         if(!Array.isArray(keys)||!keys.length||keys.length>200||keys.some(k=>typeof k!=="string"||!k||k.length>4000)||new Set(keys).size!==keys.length)throw Error("Invalid selected keys");
         const records=keys.map(key=>{const entity=store.getEntity(id,key);if(!entity)throw Error("Entity not found");return exportedEntity(store,id,entity,false);});
         output({schemaVersion:DATA_VERSION,dataset,projectId:id,exportedAt:new Date().toISOString(),limit:keys.length,offset:0,count:records.length,records});return;
       }
-      const count=await streamExport(store,id,dataset,flags,limit,offset,compact,format as "json"|"ndjson");
+      const count=await streamExport(store,id,dataset,flags,limit,offset,compact,format as "json"|"ndjson",filter);
       if(flags.get("out")){
         output({schemaVersion:DATA_VERSION,command,dataset,projectId:id,
           format,path:resolve(required(flags,"out")),count});

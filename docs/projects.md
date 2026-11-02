@@ -89,3 +89,6 @@ End users can create a complete, schema-validated project without writing a JSON
 ## Repeatable source monitoring and watches
 
 Use `json-snapshot` when a local JSON array of stable-ID observations should be **rechecked on every scheduled run**, unlike append-only `json-file`. Use `public-json` for read-only authorized HTTPS JSON APIs with declarative record mapping and `public-product` for publicly published Schema.org Product/Offer JSON-LD on a set of configured HTTPS pages. The engine stores immutable entity and observation versions plus field-level changes. Optional `watch.rules` evaluate `created`, `changed`, `equals` and numeric percent increase/decrease comparators, with optional unchanged-field guards (e.g. price currency). See `docs/monitoring.md` for working price and job examples and precise boundaries.
+
+
+See [Deterministic collection filters v1](collection-filters.md) for saved term/exclusion profiles, source selection, resource/source conditions and filtering before pagination. Filters do not assess editorial quality.

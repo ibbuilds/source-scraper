@@ -95,3 +95,6 @@ The built-in `mcp-stdio` source calls an explicitly selected listing tool on a t
 ## Versioned domain-neutral monitoring
 
 Stable `Observation.id` and `EntityDraft.key` values allow the engine to compare successive snapshots from any adapter. Changes are stored per field in SQLite with original observation provenance. An optional project's `watch.rules` array generates local audit alerts. This is a capability of the generic core, not a product/job-specific SDK extension. Snapshots, source timestamps and availability claims remain the adapter's responsibility. See `docs/monitoring.md`.
+
+
+See [Deterministic collection filters v1](collection-filters.md) for saved term/exclusion profiles, source selection, resource/source conditions and filtering before pagination. Filters do not assess editorial quality.

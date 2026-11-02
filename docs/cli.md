@@ -91,3 +91,6 @@ The ChatGPT integration is a producer of findings and drafts. It does not own va
 - SQLite uses an exclusive writer lease and transactional page checkpoints. **Back up the DB before upgrading**; opening a legacy DB may run additive migrations. No cloud account or telemetry is required.
 - The toolkit does not guarantee the completeness of third-party sources, universal truth of a classification or license, delivery of an external webhook, or that a data source's absence signifies deletion.
 - The optional Obsidian integration consumes the same engine; it is not part of the CLI's execution prerequisites.
+
+
+See [Deterministic collection filters v1](collection-filters.md) for saved term/exclusion profiles, source selection, resource/source conditions and filtering before pagination. Filters do not assess editorial quality.
