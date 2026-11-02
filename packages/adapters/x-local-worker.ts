@@ -32,7 +32,7 @@ async def collect(arguments):
                 async with httpx.AsyncClient(trust_env=False, follow_redirects=False, timeout=12) as public:
                     return await public.get(str(url))
             allowed = (parsed.hostname == "api.x.com" and method.upper() == "GET" and parsed.path == "/1.1/account/settings.json") or (parsed.hostname == "x.com" and (
-                (method.upper() == "GET" and parsed.path in ("/", "/home", "/i/api/1.1/account/settings.json"))
+                (method.upper() == "GET" and (parsed.path or "/") in ("/", "/home", "/i/api/1.1/account/settings.json"))
                 or (method.upper() in ("GET", "POST") and parsed.path.startswith("/i/api/graphql/")
                     and parsed.path.rsplit("/", 1)[-1] in ("HomeTimeline", "UserByScreenName"))))
             if not allowed:

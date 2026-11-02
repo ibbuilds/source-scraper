@@ -51,6 +51,8 @@ class Client:
         EVENTS.append((method, url, None))
         return types.SimpleNamespace(status_code=self.status)
     async def user_id(self):
+        # Twifork starts its real transaction handshake with the bare origin.
+        await self._send("GET", "https://x.com")
         await self._send("GET", "https://abs.twimg.com/bootstrap.js")
         await self._send("GET", "https://api.x.com/1.1/account/settings.json")
         return self.account
@@ -75,7 +77,7 @@ class BridgeTests(unittest.TestCase):
         self.assertFalse(result["hasMore"]);self.assertNotIn("nextCursor",result)
         self.assertTrue(any(url.endswith("/HomeTimeline") for _,url,_ in EVENTS))
     def test_bootstrap_gets_no_account_cookies(self):
-        self.collect();self.assertEqual(EVENTS[0],("public","https://abs.twimg.com/bootstrap.js",[]))
+        self.collect();self.assertIn(("public","https://abs.twimg.com/bootstrap.js",[]),EVENTS)
     def test_account_mismatch_stops_before_timeline(self):
         Client.account="999"
         with self.assertRaisesRegex(ValueError,"ACCOUNT_MISMATCH"): self.collect()

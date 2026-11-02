@@ -253,7 +253,13 @@ async function execute(command:string,flags:Flags):Promise<void>{
         maxPages:integer(flags,"max-pages",100,1,1000)
       });
       output({schemaVersion:DATA_VERSION,command,id,result});
-      if(!result.success)process.exitCode=1;
+      if(!result.success){
+        const failures=result.runs.filter(run=>run.status!=="success").length;
+        // Keep private error bodies in the structured result, never duplicate
+        // them into stderr. Desktop clients still need a nonempty summary.
+        process.stderr.write("source-scraper: collection failed in "+failures+" source(s); see result.runs for details\n");
+        process.exitCode=1;
+      }
     }else{
       if(!existsSync(db))throw new Error("No database at the selected path. Run the project first.");
       const result=await reprocessProject(db,project,registry);
