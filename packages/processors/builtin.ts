@@ -1,5 +1,5 @@
 import {normalizeUrl,isXUrl} from "../core/url.ts";
-import {fetchPublicMetadata} from "../connectors/metadata.ts";
+import {createPublicMetadataProcessor} from "./public-metadata.ts";
 import {entityNamespace,normalizeKeywords} from "../core/project-config.ts";
 import type {Extension,EntityDraft,Observation,Processor,Evaluator} from "../sdk/contracts.ts";
 
@@ -55,52 +55,8 @@ const xDiscovery:Processor={id:"x-discovery",run(_context,observation,previous){
     evidence:[{signal:"x-post-without-external-resource",detail:"Source post preserved for contextual review; no external tool URL established",confidence:1}]});
   return [...previous,...drafts];
 }};
-// The metadata stage is explicitly opt-in in project.pipeline. It shares the
-// already hardened public HTTP client and never reads authenticated X content.
-const metadataSessions=new WeakMap<AbortSignal,{count:number;cache:Map<string,
-  Awaited<ReturnType<typeof fetchPublicMetadata>>|null>}>();
-const metadata:Processor={
-  id:"public-metadata",
-  async run(context,_observation,previous){
-    let state=metadataSessions.get(context.signal);
-    if(!state){state={count:0,cache:new Map()};metadataSessions.set(context.signal,state);}
-    const updated:EntityDraft[]=[];
-    for(const draft of previous){
-      if(!draft.url||isXUrl(draft.url)||new URL(draft.url).hostname==="t.co"){
-        updated.push(draft);continue;
-      }
-      let result=state.cache.get(draft.url);
-      if(result===undefined){
-        if(state.count>=20){updated.push(draft);continue;}
-        state.count++;
-        try{result=await fetchPublicMetadata(draft.url);}
-        catch{result=null;}
-        state.cache.set(draft.url,result);
-      }
-      if(!result){
-        updated.push({...draft,evidence:[...(draft.evidence||[]),
-          {signal:"metadata-unavailable",detail:"Public metadata could not be verified"}]});
-        continue;
-      }
-      const info=result.metadata;
-      updated.push({
-        ...draft,
-        key:normalizeUrl(result.url),
-        url:normalizeUrl(result.url),
-        title:info.title||draft.title,
-        attributes:{...(draft.attributes||{}),
-          ...(info.description?{description:info.description}:{}),
-          ...(info.license?{license:info.license}:{}),
-          ...(info.access?{access:info.access}:{}),
-          ...(info.contentType?{contentType:info.contentType}:{})},
-        evidence:[...(draft.evidence||[]),
-          ...(info.title?[{signal:"public-title",detail:"Public page title returned",confidence:0.9}]:[]),
-          ...(info.license?[{signal:"license",detail:"Public license metadata: "+info.license,confidence:0.95}]:[])]
-      });
-    }
-    return updated;
-  }
-};
+// Explicit opt-in enrichment; bounded run-scoped concurrency and request budget.
+const metadata=createPublicMetadataProcessor();
 const self:Processor={
   id:"observation-entity",
   run(context,observation,previous){

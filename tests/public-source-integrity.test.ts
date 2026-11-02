@@ -196,3 +196,15 @@ test("public retrieval refuses all X and t.co variants before DNS or socket use"
   assert.deepEqual(lookups,[],"Blocked X hosts must not be resolved");
   assert.deepEqual(requests,[],"Blocked X hosts must not be requested");
 });
+
+test("a cancelled DNS wait rejects promptly and a late public answer cannot start HTTP",async t=>{
+  let answer:(rows:Array<{address:string;family:number}>)=>void=()=>{};let requests=0;
+  t.mock.method(dns,"lookup",(()=>new Promise(resolve=>answer=resolve)) as unknown as typeof dns.lookup);
+  t.mock.method(https,"request",(()=>{requests++;throw Error("late request");}) as unknown as typeof https.request);
+  syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+  const controller=new AbortController();
+  const operation=fetchPublicText("https://catalog.example/metadata",{...jsonOptions,signal:controller.signal});
+  const rejected=assert.rejects(operation,/cancelled|abort/i);controller.abort();await rejected;
+  answer([{address:"93.184.216.34",family:4}]);await new Promise<void>(resolve=>setImmediate(resolve));
+  assert.equal(requests,0);
+});

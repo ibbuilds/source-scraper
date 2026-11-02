@@ -147,7 +147,7 @@ function readPage(store:KnowledgeStore,projectId:string,dataset:DataSet,
 }
 function exportedEntity(store:KnowledgeStore,id:string,entity:KnowledgeEntity,compact:boolean):unknown{
   if(compact)return entity;
-  const detail=store.entityEvidence(id,entity.key);
+  const detail=store.entityEvidence(id,entity.key,entity);
   if(!detail)throw new Error("Entity disappeared during export");
   return {...entity,provenance:{
     mentions:detail.mentions,reviews:detail.reviews,assessmentHistory:detail.assessments,
@@ -164,8 +164,8 @@ async function streamExport(store:KnowledgeStore,id:string,dataset:DataSet,flags
   const path=flags.get("out")?resolve(required(flags,"out")):undefined;
   const handle=path?await openFile(path,"wx",0o600):undefined;
   let completed=false,records=0,remaining=limit,current=offset;
-  const filtered=filter.active&&dataset==="entities"?createFilteredQuery(store,id,filter,{limit,offset}):undefined;
-  if(filtered)store.db.exec("BEGIN");
+  const filtered=dataset==="entities"?createFilteredQuery(store,id,filter,{limit,offset}):undefined;
+  let readTransaction=false;
   const write=async(content:string):Promise<void>=>{
     if(handle)await handle.writeFile(content);
     else await new Promise<void>((resolveWrite,rejectWrite)=>{
@@ -173,6 +173,7 @@ async function streamExport(store:KnowledgeStore,id:string,dataset:DataSet,flags
     });
   };
   try{
+    if(filtered){store.db.exec("BEGIN");readTransaction=true;}
     if(format==="json"){
       await write(JSON.stringify({schemaVersion:DATA_VERSION,dataset,projectId:id,
         exportedAt:new Date().toISOString(),limit,offset}).slice(0,-1)+',"records":[');
@@ -202,7 +203,7 @@ async function streamExport(store:KnowledgeStore,id:string,dataset:DataSet,flags
     completed=true;
     return records;
   }finally{
-    try{try{filtered?.records.return?.();if(filtered)store.db.exec("COMMIT");}finally{await handle?.close();}}
+    try{try{filtered?.records.return?.();if(readTransaction)store.db.exec("COMMIT");}finally{await handle?.close();}}
     finally{
       if(!completed&&path)await unlink(path).catch(()=>{});
     }

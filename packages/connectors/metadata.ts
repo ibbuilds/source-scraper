@@ -43,7 +43,9 @@ export function parseGithubMetadata(input:unknown):Metadata{
     access:isOpenSource?"open_source":"unknown"
   };
 }
-export async function fetchPublicMetadata(raw:string):Promise<{url:string;metadata:Metadata}>{
+export async function fetchPublicMetadata(raw:string,signal?:AbortSignal):Promise<{url:string;metadata:Metadata}>{
+  signal=signal?AbortSignal.any([signal,AbortSignal.timeout(8000)]):AbortSignal.timeout(8000);
+  signal.throwIfAborted();
   const repo=githubRepoPath(raw);
   if(repo){
     try{
@@ -51,14 +53,15 @@ export async function fetchPublicMetadata(raw:string):Promise<{url:string;metada
         encodeURIComponent(repo.repo);
       const response=await fetchPublicText(endpoint,{
         accept:"application/vnd.github+json, application/json",
-        types:["application/json","application/vnd.github+json"],maxBytes:200_000
+        types:["application/json","application/vnd.github+json"],maxBytes:200_000,signal
       });
       return {url:raw,metadata:parseGithubMetadata(JSON.parse(response.body))};
     }catch{
+      signal.throwIfAborted();
       // GitHub's unauthenticated API may rate limit; fall back to public HTML.
     }
   }
-  const result=await fetchPublicText(raw,{accept:"text/html",types:["text/html"],maxBytes:120_000});
+  const result=await fetchPublicText(raw,{accept:"text/html",types:["text/html"],maxBytes:120_000,signal});
   const title=meta(result.body,["og:title","twitter:title"])||
     decode(result.body.match(/<title[^>]*>([^<]{1,300})<\/title>/i)?.[1]||"");
   const description=meta(result.body,["description","og:description","twitter:description"]);

@@ -489,11 +489,13 @@ export class KnowledgeStore extends Store {
     ).get(projectId,key) as Row|undefined;
     return rows?asKnowledge(rows):undefined;
   }
-  entityEvidence(projectId:string,key:string):{
+  /** knownEntity is a caller-owned row from the same read snapshot, never a persistent cache. */
+  entityEvidence(projectId:string,key:string,knownEntity?:KnowledgeEntity):{
     entity:KnowledgeEntity;mentions:Array<Record<string,unknown>>;
     reviews:Array<Record<string,unknown>>;assessments:Array<Record<string,unknown>>
   }|undefined{
-    const entity=this.getEntity(projectId,key);
+    if(knownEntity&&(knownEntity.projectId!==projectId||knownEntity.key!==key))throw Error("Evidence snapshot identity mismatch");
+    const entity=knownEntity??this.getEntity(projectId,key);
     if(!entity)return undefined;
     const mentions=(this.prepareCached(
       "SELECT m.connection_id,m.item_id,o.type,o.title,o.url,o.occurred_at,"+
