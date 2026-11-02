@@ -94,3 +94,5 @@ The ChatGPT integration is a producer of findings and drafts. It does not own va
 
 
 See [Deterministic collection filters v1](collection-filters.md) for saved term/exclusion profiles, source selection, resource/source conditions and filtering before pagination. Filters do not assess editorial quality.
+
+See [Pipeline performance](pipeline-performance.md) for bulk export, metadata concurrency, cancellation and reproducible measurements.

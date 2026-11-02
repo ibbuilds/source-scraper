@@ -6,10 +6,23 @@ import {isLocalOrUnsafeAddress, normalizeUrl, safeHostname, isXUrl} from "../cor
 
 /** DNS-pinned, redirect-revalidated public text retrieval. No sessions or X scraping. */
 export async function fetchPublicText(input:string, options:{
-  accept:string;types:readonly string[];maxBytes?:number;redirects?:number
+  accept:string;types:readonly string[];maxBytes?:number;redirects?:number;signal?:AbortSignal
 }):Promise<{url:string;body:string;contentType:string}> {
+  const signal=options.signal;
+  signal?.throwIfAborted();
+  const resolvePublicHost=async(host:string)=>{
+    if(isIP(host))return [{address:host,family:isIP(host)}];
+    if(!signal)return lookup(host,{all:true});
+    return new Promise<Array<{address:string;family:number}>>((resolve,reject)=>{
+      const aborted=()=>{signal.removeEventListener("abort",aborted);reject(Error("Public request cancelled or timed out"));};
+      signal.addEventListener("abort",aborted,{once:true});
+      if(signal.aborted){aborted();return;}
+      void lookup(host,{all:true}).then(rows=>{signal.removeEventListener("abort",aborted);resolve(rows);},error=>{signal.removeEventListener("abort",aborted);reject(error);});
+    });
+  };
   const maxBytes=Math.min(1_000_000,Math.max(1024,options.maxBytes??300_000));
   async function step(inputUrl:string,remaining:number,requireHttps=false):Promise<{url:string;body:string;contentType:string}> {
+    signal?.throwIfAborted();
     if(remaining<0) throw new Error("Too many redirects");
     const canonical=normalizeUrl(inputUrl);
     const candidateHost=new URL(canonical).hostname.toLowerCase().replace(/\.$/,"");
@@ -21,7 +34,8 @@ export async function fetchPublicText(input:string, options:{
       throw new Error("HTTPS redirects cannot downgrade to HTTP");
     }
     const host=safeHostname(canonical);
-    const addresses=isIP(host) ? [{address:host,family:isIP(host)}] : await lookup(host,{all:true});
+    const addresses=await resolvePublicHost(host);
+    signal?.throwIfAborted();
     if(!addresses.length || addresses.some(x=>isLocalOrUnsafeAddress(x.address))) {
       throw new Error("Unsafe or private DNS resolution");
     }
@@ -30,7 +44,7 @@ export async function fetchPublicText(input:string, options:{
       let settled=false;
       const fail=(error:Error)=>{if(!settled){settled=true;reject(error);}};
       const req=(parsed.protocol==="https:"?https:http)(parsed,{
-        method:"GET",
+        method:"GET",signal,
         headers:{
           "accept":options.accept,
           "accept-encoding":"identity",

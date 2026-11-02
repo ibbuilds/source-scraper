@@ -87,6 +87,24 @@ test("query filtering precedes pagination, uses all active source snapshots, pre
     const exported=cli(["export","--config",unfilteredConfig,"--compact","true","--filters-json",JSON.stringify({version:1,entity:{includeTerms:["other"]}})]);
     assert.equal(exported.count,600,"filtered exports continue beyond a 500-row page");
     assert.equal(new Set(exported.records.map((x:any)=>x.key)).size,600);
+    const ordinary=cli(["export","--config",unfilteredConfig,"--limit","550","--offset","25"]);
+    assert.equal(ordinary.count,550,"unfiltered entity exports stream beyond one output batch");
+    const reopened=new KnowledgeStore(db);
+    try{
+      const key=ordinary.records[0].key,known=reopened.getEntity(project.id,key)!;
+      const detail=reopened.entityEvidence(project.id,key);
+      const originalGet=reopened.getEntity.bind(reopened);let reads=0;
+      reopened.getEntity=(...args)=>{reads++;return originalGet(...args);};
+      assert.deepEqual(reopened.entityEvidence(project.id,key,known),detail);
+      assert.equal(reads,0,"export evidence reuses the row already read from its snapshot");
+      assert.throws(()=>reopened.entityEvidence(project.id,key,{...known,key:"wrong"}),/identity mismatch/);
+    }finally{reopened.close();}
+
+    assert.equal(ordinary.records[0].key,"catalog-entry:0025");assert.equal(ordinary.records.at(-1).key,"catalog-entry:0574");
+    assert.ok(ordinary.records.every((row:any)=>row.provenance.mentions.length===1));
+    const ndjson=spawnSync(process.execPath,[binary,"export","--config",unfilteredConfig,"--format","ndjson","--limit","550","--offset","25","--compact","true"],{encoding:"utf8",timeout:30000});
+    assert.equal(ndjson.status,0,ndjson.stderr);
+    assert.deepEqual(ndjson.stdout.trim().split("\n").map(line=>JSON.parse(line).record.key),ordinary.records.map((row:any)=>row.key));
     assert.deepEqual(JSON.parse(readFileSync(config,"utf8")),raw,"requests do not rewrite saved filters");
   }finally{rmSync(root,{recursive:true,force:true});}
 });
