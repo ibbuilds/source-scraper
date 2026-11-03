@@ -1,6 +1,6 @@
 import {acquireLock} from "./lock.ts";
 import {KnowledgeStore} from "../storage/knowledge.ts";
-import type {ProjectDefinition,Registry} from "../sdk/contracts.ts";
+import type {KnowledgeEntity,ProjectDefinition,Registry} from "../sdk/contracts.ts";
 
 /** Export only user-configured destinations, never touch the original References.md. */
 export async function exportProject(dbPath:string,project:ProjectDefinition,
@@ -9,14 +9,16 @@ export async function exportProject(dbPath:string,project:ProjectDefinition,
   let store:KnowledgeStore|undefined;
   try{
     store=new KnowledgeStore(dbPath);
-    const records=store.listEntities(project.id,{limit:500});
-    for(let offset=500;;offset+=500){
-      const page=store.listEntities(project.id,{limit:500,offset});
-      if(!page.length)break;
-      records.push(...page);
-    }
-    const filtered=records.filter(item=>
-      item.review!=="rejected"&&item.score>=project.policy.minimumScore);
+    // One ordered snapshot: never repeatedly sort/skip every preceding page.
+    // Output adapters still receive their existing complete-array contract.
+    store.db.exec("BEGIN");
+    const filtered:KnowledgeEntity[]=[];
+    try{
+      for(const item of store.iterateEntities(project.id)){
+        if(item.review!=="rejected"&&item.score>=project.policy.minimumScore)filtered.push(item);
+      }
+      store.db.exec("COMMIT");
+    }catch(error){store.db.exec("ROLLBACK");throw error;}
     // Store is closed before adapters run, but the process-wide collector lock
     // remains held through all filesystem writes.
     store.close();store=undefined;
