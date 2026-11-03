@@ -430,16 +430,22 @@ export class KnowledgeStore extends Store {
     const limit=Number.isFinite(opts.limit)?Math.max(1,Math.min(500,Math.floor(opts.limit!))):100;
     const offset=Number.isFinite(opts.offset)?Math.max(0,Math.min(1000000,Math.floor(opts.offset!))):0;
     const q=opts.q?"%"+opts.q.slice(0,100)+"%":null;
+    // Rank narrow identities first. Hydrate JSON, review and mention counts only
+    // for the selected page instead of for every row considered by the sort.
     const rows=this.prepareCached(
+      "WITH page AS MATERIALIZED (SELECT e.project_id,e.entity_key,COALESCE(a.score,0) sort_score "+
+      "FROM kb_entities e LEFT JOIN kb_assessments a ON a.project_id=e.project_id AND a.entity_key=e.entity_key "+
+      "WHERE e.project_id=? AND (? IS NULL OR e.type=?) AND (? IS NULL OR e.title LIKE ? OR e.entity_key LIKE ?) "+
+      "AND COALESCE(a.score,0)>=? ORDER BY COALESCE(a.score,0) DESC,e.entity_key LIMIT ? OFFSET ?) "+
       "SELECT e.project_id,e.entity_key,e.type,e.title,e.url,e.attributes_json,e.updated_at,"+
       "a.category,a.score,a.confidence,a.reasons_json,"+
       "COALESCE((SELECT CASE WHEN r.decision IN ('approved','excellent') THEN 'approved' "+
       "WHEN r.decision='rejected' THEN 'rejected' ELSE 'pending' END FROM kb_reviews r "+
       "WHERE r.project_id=e.project_id AND r.entity_key=e.entity_key ORDER BY r.id DESC LIMIT 1),'pending') review,"+
       "(SELECT COUNT(*) FROM kb_mentions m WHERE m.project_id=e.project_id AND m.entity_key=e.entity_key) observation_count "+
-      "FROM kb_entities e LEFT JOIN kb_assessments a ON a.project_id=e.project_id AND a.entity_key=e.entity_key "+
-      "WHERE e.project_id=? AND (? IS NULL OR e.type=?) AND (? IS NULL OR e.title LIKE ? OR e.entity_key LIKE ?) "+
-      "AND COALESCE(a.score,0)>=? ORDER BY COALESCE(a.score,0) DESC,e.entity_key LIMIT ? OFFSET ?"
+      "FROM page p JOIN kb_entities e ON e.project_id=p.project_id AND e.entity_key=p.entity_key "+
+      "LEFT JOIN kb_assessments a ON a.project_id=e.project_id AND a.entity_key=e.entity_key "+
+      "ORDER BY p.sort_score DESC,p.entity_key"
     ).all(projectId,opts.type||null,opts.type||null,q,q,q,
       Number.isFinite(opts.minScore)?opts.minScore!:0,limit,offset) as Row[];
     return rows.map(asKnowledge);
