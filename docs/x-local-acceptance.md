@@ -17,7 +17,7 @@ emit a nonempty, data-free stderr summary for desktop consumers.
 Two bounded, authenticated For You windows completed through the existing
 Obsidian MCP provider: 28 and 27 source observations, with 28 and 47 new
 entities respectively. The second window used the saved continuation. A third
-window started with the actual Obsidian **Buscar recursos** button also passed:
+window started with the actual Obsidian **Find resources** button also passed:
 28 observations and 34 new entities. Across the three windows the library held
 109 entities from 83 source observations. Account
 identity was checked by the worker before reading HomeTimeline. The account,
