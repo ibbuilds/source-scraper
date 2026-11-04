@@ -34,14 +34,14 @@ def read_checkpoint(value):
 def write_checkpoint(cursor, seen, observations):
     if not cursor:
         return None
-    if not isinstance(cursor, str) or len(cursor) > 4000 or any(ord(c) < 32 for c in cursor):
+    if not isinstance(cursor, str) or len(cursor) > 2048 or any(ord(c) < 32 for c in cursor):
         raise ValueError("X_LOCAL_INPUT_LIMIT")
     # A bounded recent window belongs to the checkpoint, not credentials or
     # process memory. X receives it even when each page uses a fresh worker.
     ids = list(reversed(list(dict.fromkeys(reversed(seen + [item["id"] for item in observations])))[:128]))
     while ids:
         value = "ssx1:" + json.dumps({"c": cursor, "s": ids}, separators=(",", ":"))
-        if len(value) <= 4000:
+        if len(value) <= 2048:  # The stdio transport is stricter than the X adapter.
             return value
         ids.pop(0)
     return cursor  # Never lose a valid long continuation to make room for IDs.

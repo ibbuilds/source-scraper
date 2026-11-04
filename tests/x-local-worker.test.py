@@ -92,12 +92,22 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(len(set(seen)),128)
         self.assertEqual(seen[-2:],["101","999"])
     def test_long_checkpoint_preserves_cursor_within_adapter_limit(self):
-        raw="c"*3950
+        raw="c"*2000
         saved=SPACE["write_checkpoint"](raw,[str(i) for i in range(128)],[{"id":"101"}])
-        self.assertLessEqual(len(saved),4000)
+        self.assertLessEqual(len(saved),2048)
         self.assertEqual(SPACE["read_checkpoint"](saved)[0],raw)
-        raw="c"*4000
+        raw="c"*2048
         self.assertEqual(SPACE["write_checkpoint"](raw,[],[{"id":"101"}]),raw)
+        with self.assertRaisesRegex(ValueError,"INPUT_LIMIT"):
+            SPACE["write_checkpoint"]("c"*2049,[],[{"id":"101"}])
+    def test_repeated_real_sized_pages_fit_stdio_cursor_limit(self):
+        cursor=None
+        for page in range(20):
+            raw,seen=SPACE["read_checkpoint"](cursor)
+            observations=[{"id":str(2117950000000000000+page*28+i)} for i in range(28)]
+            cursor=SPACE["write_checkpoint"]("x"*46,seen,observations)
+            self.assertLessEqual(len(cursor),2048)
+            self.assertEqual(SPACE["read_checkpoint"](cursor)[0],"x"*46)
     def test_bad_checkpoint_stops_before_any_network(self):
         for value in ["ssx1:broken", 'ssx1:{"c":"after","s":["not-an-id"]}',
             'ssx1:{"c":"after","s":[true]}', "ssx1:"+json.dumps({"c":"after","s":["1"]*129}),
