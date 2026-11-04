@@ -45,6 +45,8 @@ class Client:
     status = 200
     account = "1234567890"
     overflow = False
+    next_cursor = None
+    timeline_calls = []
     def __init__(self, *args, **kwargs): self.http = HTTP()
     async def request(self, method, url, **kwargs): return await self._send(method, url, **kwargs)
     async def _send(self, method, url, **kwargs):
@@ -57,8 +59,10 @@ class Client:
         await self._send("GET", "https://api.x.com/1.1/account/settings.json")
         return self.account
     async def get_timeline(self, **kwargs):
+        self.timeline_calls.append(kwargs)
         await self._send("POST", "https://x.com/i/api/graphql/fixed/" + self.operation)
         result = Result()
+        result.next_cursor = self.next_cursor
         if self.overflow: result._Result__overflow = ["extra"]
         return result
 
@@ -66,11 +70,41 @@ class Client:
 class BridgeTests(unittest.TestCase):
     def setUp(self):
         EVENTS.clear();Client.operation="HomeTimeline";Client.status=200;Client.account="1234567890";Client.overflow=False
+        Client.next_cursor=None;Client.timeline_calls=[]
         self.environment=patch.dict(os.environ, {"SOURCE_SCRAPER_X_ACCOUNT_SESSION":"fixture-session", "SOURCE_SCRAPER_X_CSRF":"fixture-csrf"})
         self.modules=patch.dict(sys.modules, {"httpx":types.SimpleNamespace(AsyncClient=HTTP),"twikit":types.SimpleNamespace(Client=Client,__version__="2.4.0")})
         self.environment.start();self.modules.start()
     def tearDown(self): self.modules.stop();self.environment.stop()
-    def collect(self): return asyncio.run(SPACE["collect"]({"accountId":"1234567890"}))
+    def collect(self, **kwargs): return asyncio.run(SPACE["collect"]({"accountId":"1234567890", **kwargs}))
+    def test_continuation_remembers_seen_posts_across_worker_processes(self):
+        Client.next_cursor="after-page"
+        first=self.collect(cursor="legacy-page")
+        self.collect(cursor=first["nextCursor"])
+        self.assertEqual(Client.timeline_calls[0]["cursor"],"legacy-page")
+        self.assertEqual(Client.timeline_calls[1]["cursor"],"after-page")
+        self.assertEqual(Client.timeline_calls[1].get("seen_tweet_ids"),["101"])
+    def test_checkpoint_deduplicates_and_bounds_recent_ids(self):
+        old=[str(i) for i in range(200)]
+        saved=SPACE["write_checkpoint"]("after-page",old,[{"id":"101"},{"id":"999"}])
+        cursor,seen=SPACE["read_checkpoint"](saved)
+        self.assertEqual(cursor,"after-page")
+        self.assertEqual(len(seen),128)
+        self.assertEqual(len(set(seen)),128)
+        self.assertEqual(seen[-2:],["101","999"])
+    def test_long_checkpoint_preserves_cursor_within_adapter_limit(self):
+        raw="c"*3950
+        saved=SPACE["write_checkpoint"](raw,[str(i) for i in range(128)],[{"id":"101"}])
+        self.assertLessEqual(len(saved),4000)
+        self.assertEqual(SPACE["read_checkpoint"](saved)[0],raw)
+        raw="c"*4000
+        self.assertEqual(SPACE["write_checkpoint"](raw,[],[{"id":"101"}]),raw)
+    def test_bad_checkpoint_stops_before_any_network(self):
+        for value in ["ssx1:broken", 'ssx1:{"c":"after","s":["not-an-id"]}',
+            'ssx1:{"c":"after","s":[true]}', "ssx1:"+json.dumps({"c":"after","s":["1"]*129}),
+            "ssx1:"+json.dumps({"c":"after","s":[],"unexpected":True}),"x"*4001]:
+            with self.subTest(value=value[:45]):
+                with self.assertRaisesRegex(ValueError,"INPUT_LIMIT"): self.collect(cursor=value)
+                self.assertEqual(EVENTS,[])
     def test_for_you_read_and_allowlisted_output(self):
         result=self.collect();self.assertEqual(result["observations"][0]["id"],"101")
         self.assertEqual(result["observations"][0]["occurredAt"],"2026-11-01T12:00:00+00:00")

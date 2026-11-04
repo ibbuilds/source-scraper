@@ -8,11 +8,51 @@ from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
 
+def read_checkpoint(value):
+    if value is None:
+        return None, []
+    if not isinstance(value, str) or not value or len(value) > 4000 or any(ord(c) < 32 for c in value):
+        raise ValueError("X_LOCAL_INPUT_LIMIT")
+    if not value.startswith("ssx1:"):
+        return value, []  # Existing raw X cursors remain resumable.
+    try:
+        state = json.loads(value[5:])
+        if not isinstance(state, dict) or set(state) != {"c", "s"}:
+            raise ValueError()
+        cursor, seen = state["c"], state["s"]
+        if not isinstance(cursor, str) or not cursor or len(cursor) > 4000 or any(ord(c) < 32 for c in cursor):
+            raise ValueError()
+        if not isinstance(seen, list) or len(seen) > 128 or any(
+            not isinstance(item, str) or not item.isascii() or not item.isdecimal() or len(item) > 30 for item in seen
+        ):
+            raise ValueError()
+        return cursor, list(dict.fromkeys(seen))
+    except (ValueError, TypeError, KeyError):
+        raise ValueError("X_LOCAL_INPUT_LIMIT") from None
+
+
+def write_checkpoint(cursor, seen, observations):
+    if not cursor:
+        return None
+    if not isinstance(cursor, str) or len(cursor) > 4000 or any(ord(c) < 32 for c in cursor):
+        raise ValueError("X_LOCAL_INPUT_LIMIT")
+    # A bounded recent window belongs to the checkpoint, not credentials or
+    # process memory. X receives it even when each page uses a fresh worker.
+    ids = list(reversed(list(dict.fromkeys(reversed(seen + [item["id"] for item in observations])))[:128]))
+    while ids:
+        value = "ssx1:" + json.dumps({"c": cursor, "s": ids}, separators=(",", ":"))
+        if len(value) <= 4000:
+            return value
+        ids.pop(0)
+    return cursor  # Never lose a valid long continuation to make room for IDs.
+
+
 async def collect(arguments):
     token = os.environ.get("SOURCE_SCRAPER_X_ACCOUNT_SESSION", "")
     csrf = os.environ.get("SOURCE_SCRAPER_X_CSRF", "")
     if not token or not csrf:
         raise ValueError("X_LOCAL_SESSION_REQUIRED")
+    cursor, seen = read_checkpoint(arguments.get("cursor"))
     import httpx
     from twikit import Client, __version__
     if __version__ != "2.4.0":
@@ -48,7 +88,7 @@ async def collect(arguments):
     try:
         if await client.user_id() != arguments["accountId"]:
             raise ValueError("X_LOCAL_ACCOUNT_MISMATCH")
-        page = await client.get_timeline(count=100, cursor=arguments.get("cursor"))
+        page = await client.get_timeline(count=100, cursor=cursor, seen_tweet_ids=seen)
         if getattr(page, "_Result__overflow", None):
             raise ValueError("X_LOCAL_PAGE_OVERFLOW")
         observations = []
@@ -75,8 +115,8 @@ async def collect(arguments):
             if tweet.created_at:
                 item["occurredAt"] = parsedate_to_datetime(tweet.created_at).astimezone(timezone.utc).isoformat()
             observations.append(item)
-        cursor = page.next_cursor
-        return {"observations": observations, "hasMore": bool(cursor), **({"nextCursor": cursor} if cursor else {})}
+        checkpoint = write_checkpoint(page.next_cursor, seen, observations)
+        return {"observations": observations, "hasMore": bool(checkpoint), **({"nextCursor": checkpoint} if checkpoint else {})}
     finally:
         await client.http.aclose()
 
