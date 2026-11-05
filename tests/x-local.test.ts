@@ -80,7 +80,8 @@ test("runtime cycles override one-page manifests, resume commits and reset EOF f
   const post=(id:string)=>({...observed,id,url:"https://x.com/example/status/"+id,urls:["https://example.org/tool/"+id]});
   let calls=0,metadata=0;
   const pages=[{observations:[post("101")],hasMore:true,nextCursor:"a"},{observations:[post("101"),post("102")],hasMore:true,nextCursor:"b"},{observations:[],hasMore:true,nextCursor:"empty-cursor"},{observations:[post("103")],hasMore:false}];
-  const adapter=createXLocalSource({collect:async c=>{cursors.push(c.cursor);return pages[calls++];}});
+  // This fixture replaces the worker; it must not depend on a host runtime directory.
+  const adapter=createXLocalSource({workerPath:()=>"fixed-worker.py",collect:async c=>{cursors.push(c.cursor);return pages[calls++];}});
   const registry=createDefaultRegistry();registry.sources.set("x-for-you-local",adapter);
   registry.processors.set("public-metadata",createPublicMetadataProcessor(async url=>{metadata++;return {url,metadata:{title:"Exportable tool",access:"free"}};}));
   const project={id:"cycle-test",name:"Cycle test",sources:[source],pipeline:["x-discovery","public-metadata"],evaluator:"keyword",policy:{includeKeywords:[],excludeKeywords:[],minimumScore:0},outputs:[]};
