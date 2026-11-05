@@ -1,10 +1,12 @@
 """No network: exercise the actual embedded Python bridge against fake X responses."""
 import asyncio
+import hashlib
 import json
 import os
 import subprocess
 import sys
 import types
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -47,6 +49,8 @@ class Client:
     overflow = False
     next_cursor = None
     timeline_calls = []
+    favorited = False
+    send_id = None
     def __init__(self, *args, **kwargs): self.http = HTTP()
     async def request(self, method, url, **kwargs): return await self._send(method, url, **kwargs)
     async def _send(self, method, url, **kwargs):
@@ -58,6 +62,15 @@ class Client:
         await self._send("GET", "https://abs.twimg.com/bootstrap.js")
         await self._send("GET", "https://api.x.com/1.1/account/settings.json")
         return self.account
+    async def get_tweet_by_id(self, post_id):
+        await self._send("GET", "https://x.com/i/api/graphql/fixed/TweetDetail", params={"variables":json.dumps({"focalTweetId":post_id})})
+        callback=getattr(type(self),"on_inspect",None)
+        if callback: callback()
+        tweet=Result()[0];tweet.favorited=self.favorited
+        return tweet
+    async def favorite_tweet(self, post_id):
+        await self._send("POST", "https://x.com/i/api/graphql/fixed/FavoriteTweet", json={"variables":{"tweet_id":self.send_id or post_id}})
+        return types.SimpleNamespace(json=lambda:{"data":{"favorite_tweet":"Done"}})
     async def get_timeline(self, **kwargs):
         self.timeline_calls.append(kwargs)
         await self._send("POST", "https://x.com/i/api/graphql/fixed/" + self.operation)
@@ -70,12 +83,56 @@ class Client:
 class BridgeTests(unittest.TestCase):
     def setUp(self):
         EVENTS.clear();Client.operation="HomeTimeline";Client.status=200;Client.account="1234567890";Client.overflow=False
-        Client.next_cursor=None;Client.timeline_calls=[]
+        Client.next_cursor=None;Client.timeline_calls=[];Client.favorited=False;Client.send_id=None;Client.on_inspect=None
+        self.memory_temp=tempfile.TemporaryDirectory();self.memory_path=Path(self.memory_temp.name)/"resources.json"
+        self.memory_path.write_text(json.dumps({"version":1,"feedbackEnabled":True,"aliases":{},"rejections":[]}),encoding="utf-8")
+        os.environ.pop("SOURCE_SCRAPER_X_LIKES_APPROVED",None)
         self.environment=patch.dict(os.environ, {"SOURCE_SCRAPER_X_ACCOUNT_SESSION":"fixture-session", "SOURCE_SCRAPER_X_CSRF":"fixture-csrf"})
         self.modules=patch.dict(sys.modules, {"httpx":types.SimpleNamespace(AsyncClient=HTTP),"twikit":types.SimpleNamespace(Client=Client,__version__="2.4.0")})
         self.environment.start();self.modules.start()
-    def tearDown(self): self.modules.stop();self.environment.stop()
-    def collect(self, **kwargs): return asyncio.run(SPACE["collect"]({"accountId":"1234567890", **kwargs}))
+    def tearDown(self): self.modules.stop();self.environment.stop();self.memory_temp.cleanup()
+    def collect(self, **kwargs): return asyncio.run(SPACE["collect"]({"accountId":"1234567890", "resourceMemory":str(self.memory_path),"resourceUrl":"https://example.org/tool", **kwargs}))
+    def test_feedback_needs_separate_grant_before_network(self):
+        with self.assertRaisesRegex(ValueError,"LIKES_APPROVAL_REQUIRED"):
+            self.collect(operation="like_x_post",postId="101")
+        self.assertEqual(EVENTS,[])
+    def test_feedback_inspection_verifies_account_and_exact_post(self):
+        os.environ["SOURCE_SCRAPER_X_LIKES_APPROVED"]="local-likes-only"
+        result=self.collect(operation="inspect_x_like",postId="101")
+        self.assertEqual(result["postId"],"101");self.assertFalse(result["favorited"])
+        self.assertEqual(result["postTextHash"],hashlib.sha256(b"React motion").hexdigest())
+        self.assertFalse(any("FavoriteTweet" in e[1] for e in EVENTS))
+    def test_like_requires_unchanged_text_and_exposed_link(self):
+        os.environ["SOURCE_SCRAPER_X_LIKES_APPROVED"]="local-likes-only"
+        args={"operation":"like_x_post","postId":"101","postTextHash":hashlib.sha256(b"React motion").hexdigest(),"directUrl":"https://example.org/tool"}
+        result=self.collect(**args);self.assertTrue(result["requested"])
+        self.assertEqual(sum("FavoriteTweet" in e[1] for e in EVENTS),1)
+        EVENTS.clear()
+        for patching in [{"postTextHash":"0"*64},{"directUrl":"https://other.example/tool"}]:
+            with self.assertRaisesRegex(ValueError,"POST_CHANGED"):
+                self.collect(**{**args,**patching})
+        self.assertFalse(any("FavoriteTweet" in e[1] for e in EVENTS))
+    def test_like_allowlist_refuses_a_different_target_post(self):
+        os.environ["SOURCE_SCRAPER_X_LIKES_APPROVED"]="local-likes-only";Client.send_id="999"
+        with self.assertRaisesRegex(ValueError,"OPERATION_DENIED"):
+            self.collect(operation="like_x_post",postId="101",postTextHash=hashlib.sha256(b"React motion").hexdigest(),directUrl="https://example.org/tool")
+    def test_rejection_arriving_during_post_inspection_prevents_send(self):
+        os.environ["SOURCE_SCRAPER_X_LIKES_APPROVED"]="local-likes-only"
+        Client.on_inspect=lambda:self.memory_path.write_text(json.dumps({"version":1,"feedbackEnabled":True,"aliases":{},"rejections":[{"scope":"user","active":True,"resource":"https://example.org/tool"}]}),encoding="utf-8")
+        with self.assertRaisesRegex(ValueError,"RESOURCE_REJECTED"):
+            self.collect(operation="like_x_post",postId="101",postTextHash=hashlib.sha256(b"React motion").hexdigest(),directUrl="https://example.org/tool")
+        self.assertFalse(any("FavoriteTweet" in e[1] for e in EVENTS))
+    def test_feedback_stopped_during_post_inspection_prevents_send(self):
+        os.environ["SOURCE_SCRAPER_X_LIKES_APPROVED"]="local-likes-only"
+        Client.on_inspect=lambda:self.memory_path.write_text(json.dumps({"version":1,"feedbackEnabled":False,"aliases":{},"rejections":[]}),encoding="utf-8")
+        with self.assertRaisesRegex(ValueError,"LIKE_DISABLED"):
+            self.collect(operation="like_x_post",postId="101",postTextHash=hashlib.sha256(b"React motion").hexdigest(),directUrl="https://example.org/tool")
+        self.assertFalse(any("FavoriteTweet" in e[1] for e in EVENTS))
+    def test_confirmed_remote_like_does_not_send_again(self):
+        os.environ["SOURCE_SCRAPER_X_LIKES_APPROVED"]="local-likes-only";Client.favorited=True
+        result=self.collect(operation="like_x_post",postId="101",postTextHash=hashlib.sha256(b"React motion").hexdigest(),directUrl="https://example.org/tool")
+        self.assertTrue(result["favorited"]);self.assertFalse(result["requested"])
+        self.assertFalse(any("FavoriteTweet" in e[1] for e in EVENTS))
     def test_continuation_remembers_seen_posts_across_worker_processes(self):
         Client.next_cursor="after-page"
         first=self.collect(cursor="legacy-page")

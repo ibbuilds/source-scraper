@@ -1,3 +1,4 @@
+import {createHash} from "node:crypto";
 import {acquireLock} from "./lock.ts";
 import {compileCollectionFilters} from "../sdk/collection-filters.ts";
 import {validateObservation,validateEntity,validateAssessment} from "./project-config.ts";
@@ -7,6 +8,7 @@ import type {Registry,ProjectDefinition,EntityDraft,Observation,Assessment,Knowl
 export interface SourceRun {
   sourceId:string;runId:string;status:"success"|"partial"|"failed";
   observations:number;newEntities:number;duplicates:number;error?:string;
+  pages?:number;newObservations?:number;endReason?:"end-of-window"|"work-limit"|"no-new-items"|"error";
 }
 export interface ProjectRun {
   projectId:string;runs:SourceRun[];observations:number;newEntities:number;duplicates:number;
@@ -61,9 +63,10 @@ async function processItem(project:ProjectDefinition,source:ProjectDefinition["s
  * resume from the last committed page.
  */
 export async function runProject(dbPath:string,project:ProjectDefinition,registry:Registry,opts:{
-  signal?:AbortSignal;pageSize?:number;maxPages?:number;sourceIds?:string[]
+  signal?:AbortSignal;pageSize?:number;maxPages?:number;sourceIds?:string[];xCycle?:boolean;cycleId?:string
 }={}):Promise<ProjectRun>{
   assertRegistered(project,registry);
+  if(opts.cycleId!==undefined&&!/^[a-zA-Z0-9-]{16,80}$/.test(opts.cycleId))throw Error("Invalid cycle identity");
   const selectedSources=compileCollectionFilters(project.sources.map(s=>s.id),project.filters,
     opts.sourceIds===undefined?undefined:{version:1,sourceIds:opts.sourceIds}).sourceIds;
   const pageSize=opts.pageSize??100,maxPages=opts.maxPages??100;
@@ -78,6 +81,8 @@ export async function runProject(dbPath:string,project:ProjectDefinition,registr
   const result:ProjectRun={projectId:project.id,runs:[],observations:0,newEntities:0,duplicates:0,success:true};
   try{
     store=new KnowledgeStore(dbPath);
+    const prior=store.db.prepare("SELECT config_hash FROM kb_projects WHERE id=?").get(project.id) as {config_hash:string}|undefined;
+    const unchangedProject=prior?.config_hash===createHash("sha256").update(JSON.stringify(project)).digest("hex");
     store.saveProject(project);
     for(const source of project.sources){
       if(!selectedSources.includes(source.id))continue;
@@ -86,11 +91,11 @@ export async function runProject(dbPath:string,project:ProjectDefinition,registr
         observations:0,newEntities:0,duplicates:0};
       try{
         if(signal.aborted)throw new Error("Processing aborted");
-        runId=store.beginRun(project.id,source.id);
+        runId=store.beginRun(project.id,source.id,opts.cycleId);
         stats.runId=runId;
         let cursor=store.cursor(project.id,source.id);
         const seenCursors=new Set<string>();
-        let finished=false;
+        let finished=false,stalePages=0;
         for(let pageNo=0;pageNo<maxPages;pageNo++){
           if(signal.aborted)throw new Error("Processing aborted");
           if(cursor!==undefined){
@@ -98,7 +103,8 @@ export async function runProject(dbPath:string,project:ProjectDefinition,registr
             seenCursors.add(cursor);
           }
           const page=await registry.sources.get(source.adapter)!.collect({
-            source,cursor,limit:pageSize,signal
+            source,cursor,limit:pageSize,signal,
+            ...(opts.xCycle&&source.adapter==="x-for-you-local"?{pageBudget:maxPages}:{})
           });
           if(!page||!Array.isArray(page.observations)||page.observations.length>pageSize){
             throw new Error("Adapter returned invalid page size");
@@ -107,36 +113,54 @@ export async function runProject(dbPath:string,project:ProjectDefinition,registr
             (page.hasMore&&(!page.nextCursor||page.nextCursor===cursor))){
             throw new Error("Adapter pagination contract violated");
           }
+          const freshCount=new Set(page.observations.filter(o=>!store!.db.prepare("SELECT 1 FROM kb_observations WHERE project_id=? AND connection_id=? AND item_id=?").get(project.id,source.id,o.id)).map(o=>o.id)).size;
+          stalePages=freshCount===0&&page.observations.length>0?stalePages+1:0;
+          const noNewItems=Boolean(opts.xCycle&&source.adapter==="x-for-you-local"&&stalePages>=3);
           const processed:Array<{observation:Observation;entities:Array<{
             draft:EntityDraft;assessment:Assessment
           }>}>=[];
-          for(const raw of page.observations){
-            const observation=validateObservation(raw);
-            const entities=await processItem(project,source,observation,registry,signal);
-            processed.push({observation,entities});
+          const reuse=opts.xCycle&&source.adapter==="x-for-you-local"&&unchangedProject&&project.pipeline.every(p=>["x-discovery","public-metadata"].includes(p));
+          const width=opts.xCycle&&source.adapter==="x-for-you-local"&&project.pipeline.every(p=>["x-discovery","public-metadata"].includes(p))?4:1;
+          for(let offset=0;offset<page.observations.length;offset+=width){
+            const tasks=page.observations.slice(offset,offset+width).map(async raw=>{
+              const observation=validateObservation(raw);
+              const retained=reuse?store!.retainedDrafts(project.id,source.id,observation):undefined;
+              const entities=retained===undefined?await processItem(project,source,observation,registry,signal):await Promise.all(retained.filter(d=>d.type!=="x-inspiration").map(async rawDraft=>{
+                const draft=validateEntity(rawDraft,project.entitySchemas);
+                return {draft,assessment:validateAssessment(await registry.evaluators.get(project.evaluator)!.assess({project,source,signal},structuredClone(observation),structuredClone(draft)))};
+              }));
+              return {observation,entities};
+            });
+            const settled=await Promise.allSettled(tasks);
+            for(const item of settled){if(item.status==="rejected")throw item.reason;processed.push(item.value);}
           }
           // A source may complete an in-flight request after cancellation.
           // Neither that page nor one aborted during processing may commit.
           if(signal.aborted)throw new Error("Processing aborted");
           // A page that fails during processing never enters this transaction.
-          const committed=store.saveBatch(project.id,source,processed,page.nextCursor,
+          const committed=store.saveBatch(project.id,source,processed,noNewItems?undefined:page.nextCursor,
             project.evaluator,project.watch?.rules||[],
-            project.pipeline.includes("observation-entity")&&source.config.entityNamespace===undefined);
+            project.pipeline.includes("observation-entity")&&source.config.entityNamespace===undefined,runId);
+          stats.pages=pageNo+1;
+          stats.newObservations=(stats.newObservations??0)+freshCount;
           stats.observations+=committed.observations;
           stats.newEntities+=committed.newEntities;
           stats.duplicates+=committed.duplicates;
           cursor=page.nextCursor;
-          if(!page.hasMore){finished=true;break;}
+          if(noNewItems){stats.endReason="no-new-items";finished=true;break;}
+          if(!page.hasMore){stats.endReason=page.stopReason??"end-of-window";finished=true;break;}
         }
         if(!finished){
           // Reaching a configured work budget is not a connector malfunction:
           // keep the committed cursor and continue in a later scheduled cycle.
+          stats.endReason="work-limit";
           stats.status="partial";
           stats.error="Page budget reached; checkpoint saved for continuation";
           result.success=false;
           store.finishRun(runId,"partial",stats,stats.error);
         }else store.finishRun(runId,"success",stats);
       }catch(error){
+        stats.endReason="error";
         stats.status="failed";
         stats.error=summarize(error);
         result.success=false;

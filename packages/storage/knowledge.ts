@@ -69,6 +69,7 @@ export class KnowledgeStore extends Store {
       this.db.exec("ALTER TABLE kb_connections ADD COLUMN config_hash TEXT NOT NULL DEFAULT ''");
     }
     for(const [table,column,definition] of [
+      ["kb_runs","pages","INTEGER NOT NULL DEFAULT 0"],["kb_runs","cycle_id","TEXT"],
       ["kb_observations","observation_json","TEXT"],["kb_mentions","draft_json","TEXT"],
       ["kb_mentions","observation_json","TEXT"],["kb_mentions","active","INTEGER NOT NULL DEFAULT 1"]
     ]){
@@ -182,11 +183,19 @@ export class KnowledgeStore extends Store {
         .run(projectId,connectionId);
     }finally{release();}
   }
-  beginRun(projectId:string,connectionId:string):string{
+  /** Reuse exact retained drafts only under an unchanged project configuration. */
+  retainedDrafts(projectId:string,sourceId:string,observation:Observation):EntityDraft[]|undefined{
+    const old=this.prepareCached("SELECT observation_json FROM kb_observations WHERE project_id=? AND connection_id=? AND item_id=?").get(projectId,sourceId,observation.id) as {observation_json:string}|undefined;
+    if(!old||old.observation_json!==JSON.stringify(observation))return undefined;
+    const rows=this.prepareCached("SELECT draft_json FROM kb_mentions WHERE project_id=? AND connection_id=? AND item_id=? AND active=1").all(projectId,sourceId,observation.id) as {draft_json:string|null}[];
+    if(rows.some(r=>!r.draft_json))return undefined;
+    return rows.map(r=>JSON.parse(r.draft_json!));
+  }
+  beginRun(projectId:string,connectionId:string,cycleId?:string):string{
     const runId=randomUUID();
     this.prepareCached(
-      "INSERT INTO kb_runs(id,project_id,connection_id,status,started_at) VALUES(?,?,?,'running',?)"
-    ).run(runId,projectId,connectionId,now());
+      "INSERT INTO kb_runs(id,project_id,connection_id,status,started_at,cycle_id) VALUES(?,?,?,'running',?,?)"
+    ).run(runId,projectId,connectionId,now(),cycleId??null);
     return runId;
   }
   finishRun(runId:string,status:"success"|"partial"|"failed",counts:{
@@ -200,7 +209,7 @@ export class KnowledgeStore extends Store {
   saveBatch(projectId:string,source:ProjectSource,items:Array<{
     observation:Observation;entities:Array<{draft:EntityDraft;assessment:Assessment}>;
   }>,nextCursor:string|undefined,evaluatorId:string,watchRules:readonly ChangeRule[]=[],
-  protectObservationIdentity=false):{observations:number;newEntities:number;duplicates:number}{
+  protectObservationIdentity=false,runId?:string):{observations:number;newEntities:number;duplicates:number}{
     const count={observations:0,newEntities:0,duplicates:0};
     const date=now();
     const assessedEntities=new Set<string>();
@@ -370,6 +379,7 @@ export class KnowledgeStore extends Store {
         "INSERT INTO kb_checkpoints(project_id,connection_id,cursor,updated_at) VALUES(?,?,?,?) "+
         "ON CONFLICT(project_id,connection_id) DO UPDATE SET cursor=excluded.cursor,updated_at=excluded.updated_at"
       ).run(projectId,source.id,nextCursor??null,date);
+      if(runId)this.prepareCached("UPDATE kb_runs SET pages=pages+1,observations=observations+?,new_entities=new_entities+?,duplicates=duplicates+? WHERE id=?").run(count.observations,count.newEntities,count.duplicates,runId);
       this.db.exec("COMMIT");
       return count;
     }catch(error){
