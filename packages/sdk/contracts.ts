@@ -82,6 +82,8 @@ export interface SourceContext {
   cursor?:string;
   limit:number;
   signal:AbortSignal;
+  /** Explicit runtime window budget; never rewrites a trusted source manifest. */
+  pageBudget?:number;
 }
 export interface ObservationPage {
   observations:Observation[];
@@ -89,6 +91,7 @@ export interface ObservationPage {
   nextCursor?:string;
   /** Explicitly indicates that additional pages exist. */
   hasMore:boolean;
+  stopReason?:"end-of-window"|"work-limit"|"no-new-items";
 }
 export interface SourceAdapter {
   id:string;

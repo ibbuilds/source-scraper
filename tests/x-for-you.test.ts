@@ -123,11 +123,12 @@ test("X posts pass through real SQLite discovery, filters and deduplication whil
     assert.deepEqual(cursors,[undefined,"next-1"]);
     const store=new KnowledgeStore(db);
     try{
-      const rows=store.listEntities(project.id);assert.equal(rows.length,3);
-      assert.equal(rows.filter(e=>e.score>=50).length,2);
+      const rows=store.listEntities(project.id);assert.equal(rows.length,2);
+      assert.equal(rows.filter(e=>e.score>=50).length,1);
       assert.equal(store.getEntity(project.id,"https://github.com/example/motion-kit")?.observationCount,2);
       assert.equal(store.getEntity(project.id,"https://example.org/ad")?.score,0);
-      assert.equal(store.getEntity(project.id,"x-inspiration:104")?.type,"x-inspiration");
+      assert.equal(store.getEntity(project.id,"x-inspiration:104"),undefined,"unlinked posts never become resource candidates");
+      assert.equal((store.db.prepare("SELECT count(*) n FROM kb_observations").get() as {n:number}).n,4,"raw observations remain auditable");
       assert.ok(rows.every(e=>e.review==="pending"));
     }finally{store.close();}
   }finally{rmSync(root,{recursive:true,force:true});}

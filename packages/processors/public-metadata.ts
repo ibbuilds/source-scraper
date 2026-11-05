@@ -38,7 +38,7 @@ export function createPublicMetadataProcessor(fetchMetadata:typeof fetchPublicMe
         {signal:"metadata-unavailable",detail:"Public metadata could not be verified"}]};
       const info=result.metadata;
       return {...draft,key:normalizeUrl(result.url),url:normalizeUrl(result.url),title:info.title||draft.title,
-        attributes:{...(draft.attributes||{}),
+        attributes:{...(draft.attributes||{}),observedResourceUrl:draft.url,canonicalUrl:normalizeUrl(result.url),
           ...(info.description?{description:info.description}:{}),...(info.license?{license:info.license}:{}),
           ...(info.access?{access:info.access}:{}),...(info.contentType?{contentType:info.contentType}:{})},
         evidence:[...(draft.evidence||[]),

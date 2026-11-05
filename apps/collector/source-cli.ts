@@ -1,3 +1,4 @@
+import {xFeedback} from "../../packages/adapters/x-feedback.ts";
 /**
  * Source Scraper: JSON-first, Obsidian-independent public CLI.
  * Commands emit a single JSON document (or opt-in NDJSON) on stdout.
@@ -49,7 +50,9 @@ const HELP=[
 const COMMAND_FLAGS:Record<string,string[]>={
   "assessment-record":["config","db","id","key","record-json"],
   "assessment-list":["config","db","id","key","limit","offset"],
-  init:["dir"],validate:["config","extension"],run:["config","db","extension","page-size","max-pages","source-ids-json"],
+  "cycle-progress":["config","db","id","cycle-id"],
+  "x-feedback":["config","post-id","operation","post-text-hash","direct-url","resource-memory","resource-url"],
+  init:["dir"],validate:["config","extension"],run:["config","db","extension","page-size","max-pages","source-ids-json","x-cycle","cycle-id"],
   projects:["db","config"],query:["db","config","id","dataset","limit","offset","search","type","min-score","filters-json"],
   inspect:["db","config","id","key"],review:["db","config","id","key","decision","reason"],
   reprocess:["db","config","extension"],export:["db","config","id","dataset","format","out","limit","offset","compact","keys-json","filters-json"],
@@ -229,7 +232,7 @@ function init(dir:string):void{
     observationsFile:input,databasePath:join(root,".source-scraper.sqlite"),synthetic:true});
 }
 async function execute(command:string,flags:Flags):Promise<void>{
-  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1","collection-filters-v1","candidate-thresholds-v1"]});return;}
+  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1","collection-filters-v1","candidate-thresholds-v1","x-cycle-v1","x-likes-v1"]});return;}
   if(command==="init"){init(flags.get("dir")||"./source-scraper-project");return;}
   if(command==="adapters"){
     const r=createDefaultRegistry(flags.get("extension")?[resolve(required(flags,"extension"))]:[]);
@@ -237,6 +240,14 @@ async function execute(command:string,flags:Flags):Promise<void>{
       processors:[...r.processors.keys()].sort(),evaluators:[...r.evaluators.keys()].sort(),
       outputs:[...r.outputs.keys()].sort(),note:"Obsidian output is optional; no GUI is required"});
     return;
+  }
+  if(command==="x-feedback"){
+    const {project}=projectContext(flags,true);
+    const sources=project!.sources.filter(s=>s.adapter==="x-for-you-local");
+    if(sources.length!==1)throw Error("X_LOCAL_ACCOUNT_REQUIRED");
+    const {accountId}=xLocalConfig(sources[0].config),operation=required(flags,"operation");
+    if(operation!=="inspect_x_like"&&operation!=="like_x_post")throw Error("X_LOCAL_OPERATION_DENIED");
+    output(await xFeedback(accountId,required(flags,"post-id"),operation,new AbortController().signal,operation==="like_x_post"?{postTextHash:required(flags,"post-text-hash"),directUrl:required(flags,"direct-url"),resourceMemory:required(flags,"resource-memory"),resourceUrl:required(flags,"resource-url")}:undefined));return;
   }
   if(command==="validate"||command==="run"||command==="reprocess"){
     const {id,db,project}=projectContext(flags,true);
@@ -256,6 +267,8 @@ async function execute(command:string,flags:Flags):Promise<void>{
     const registry=createDefaultRegistry(flags.get("extension")?[resolve(required(flags,"extension"))]:[]);
     if(command==="run"){
       const result=await runProject(db,project,registry,{
+        cycleId:flags.get("cycle-id"),
+        xCycle:flags.get("x-cycle")==="true",
         pageSize:integer(flags,"page-size",100,1,500),
         maxPages:integer(flags,"max-pages",100,1,1000),
         sourceIds:flags.has("source-ids-json")?JSON.parse(required(flags,"source-ids-json")):undefined
@@ -289,7 +302,11 @@ async function execute(command:string,flags:Flags):Promise<void>{
     if(!store.listProjects().some(row=>row.id===id)){
       throw new Error("Project not found in database: "+id);
     }
-    if(command==="assessment-record"){
+    if(command==="cycle-progress"){
+      const cycleId=required(flags,"cycle-id");if(!/^[a-zA-Z0-9-]{16,80}$/.test(cycleId))throw Error("Invalid cycle identity");
+      const progress=store.db.prepare("SELECT COALESCE(SUM(pages),0) pages,COALESCE(SUM(observations),0) observations,COALESCE(SUM(duplicates),0) duplicates FROM kb_runs WHERE project_id=? AND cycle_id=?").get(id,cycleId);
+      output({schemaVersion:1,projectId:id,cycleId,...progress});
+    }else if(command==="assessment-record"){
       output({schemaVersion:DATA_VERSION,record:recordAgentAssessment(store,id,required(flags,"key"),required(flags,"record-json"))});
     }else if(command==="assessment-list"){
       output({schemaVersion:DATA_VERSION,records:listAgentAssessments(store,id,required(flags,"key"),integer(flags,"limit",50,1,200),integer(flags,"offset",0,0,1000000))});

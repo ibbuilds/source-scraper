@@ -49,10 +49,7 @@ const xDiscovery:Processor={id:"x-discovery",run(_context,observation,previous){
   });
   const drafts:EntityDraft[]=external.map(url=>({...asWebResource(url),
     attributes:{discoveryPost:observation.url||"",discoveryText:observation.text||"",author:observation.attributes?.author||""}}));
-  if(!drafts.length)drafts.push({key:"x-inspiration:"+observation.id,type:"x-inspiration",
-    title:observation.title||"X inspiration",url:observation.url,
-    attributes:{postText:observation.text||"",media:observation.media||[],author:observation.attributes?.author||""},
-    evidence:[{signal:"x-post-without-external-resource",detail:"Source post preserved for contextual review; no external tool URL established",confidence:1}]});
+  // Unlinked posts remain raw observations, never resource recommendations.
   return [...previous,...drafts];
 }};
 // Explicit opt-in enrichment; bounded run-scoped concurrency and request budget.

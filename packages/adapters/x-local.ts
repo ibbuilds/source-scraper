@@ -14,7 +14,7 @@ export function xLocalConfig(config:JsonRecord):{accountId:string;pagesPerRun:nu
   if(!Number.isInteger(pages)||Number(pages)<1||Number(pages)>10)throw Error("X_LOCAL_CONFIG: pagesPerRun must be 1–10");
   return {accountId:config.accountId,pagesPerRun:Number(pages)};
 }
-function workerPath():string{
+export function workerPath():string{
   let root=process.env.LOCALAPPDATA||join(homedir(),".local","share");
   for(const folder of ["SourceScraper","runtime","workers"]){
     root=join(root,folder);
@@ -43,7 +43,9 @@ export function createXLocalSource(options:{collect?:(context:SourceContext)=>Pr
     if(!Number.isInteger(limit)||limit<100||limit>500)throw Error("X_LOCAL_PAGE_SIZE: use 100–500");
     if(cursor!==undefined&&(!cursor||cursor.length>4000||/[\u0000-\u001f]/.test(cursor)||[token,csrf].some(s=>cursor.includes(s))))throw Error("X_LOCAL_CURSOR_INVALID");
     let used=budgets.get(signal);if(!used){used=new Map();budgets.set(signal,used);}
-    const count=used.get(source.id)??0;if(count>=pagesPerRun)throw Error("X_LOCAL_WINDOW_COMPLETE");used.set(source.id,count+1);
+    const budget=context.pageBudget??pagesPerRun;
+    if(!Number.isInteger(budget)||budget<1||budget>1000)throw Error("X_LOCAL_CONFIG: invalid runtime page budget");
+    const count=used.get(source.id)??0;if(count>=budget)throw Error("X_LOCAL_WINDOW_COMPLETE");used.set(source.id,count+1);
     let page:ObservationPage;
     try{page=await (options.collect??localWorkerSource.collect.bind(localWorkerSource))({...context,source:{id:source.id,adapter:"mcp-stdio",config:{
       command:python,args:["-I",(options.workerPath??workerPath)()],tool:"read_x_for_you",protocol:"legacy",
@@ -62,7 +64,9 @@ export function createXLocalSource(options:{collect?:(context:SourceContext)=>Pr
         attributes:{author:clean(String(item.attributes?.author||"")),collector:"twifork",feed:"for-you",liveVerification:"not-attested-by-code",metrics:xMetrics(item.attributes?.metrics)}};
     });
     if(page.nextCursor&&([token,csrf].some(s=>page.nextCursor!.includes(s))||page.nextCursor.length>4000||/[\u0000-\u001f]/.test(page.nextCursor)))throw Error("X_LOCAL_CURSOR_INVALID");
-    return {observations,nextCursor:page.nextCursor,hasMore:page.hasMore&&count+1<pagesPerRun};
+    const exhausted=!page.hasMore||page.observations.length===0;
+    return {observations,nextCursor:exhausted?undefined:page.nextCursor,hasMore:!exhausted&&count+1<budget,
+      stopReason:exhausted?"end-of-window":count+1>=budget?"work-limit":undefined};
   }};
 }
 export const xLocalSource=createXLocalSource();

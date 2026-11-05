@@ -1,5 +1,6 @@
 export const X_LOCAL_WORKER=String.raw`"""Fixed read-only Twifork bridge. No login automation, paid services or cookie extraction."""
 import asyncio
+import hashlib
 import json
 import os
 import sys
@@ -52,6 +53,14 @@ async def collect(arguments):
     csrf = os.environ.get("SOURCE_SCRAPER_X_CSRF", "")
     if not token or not csrf:
         raise ValueError("X_LOCAL_SESSION_REQUIRED")
+    operation = arguments.get("operation", "read_x_for_you")
+    feedback = operation in ("inspect_x_like", "like_x_post")
+    if feedback:
+        if os.environ.get("SOURCE_SCRAPER_X_LIKES_APPROVED") != "local-likes-only":
+            raise ValueError("X_LOCAL_LIKES_APPROVAL_REQUIRED")
+        post_id = arguments.get("postId", "")
+        if not isinstance(post_id, str) or not post_id.isascii() or not post_id.isdecimal() or len(post_id) > 30:
+            raise ValueError("X_LOCAL_POST_INVALID")
     cursor, seen = read_checkpoint(arguments.get("cursor"))
     import httpx
     from twikit import Client, __version__
@@ -75,6 +84,15 @@ async def collect(arguments):
                 (method.upper() == "GET" and (parsed.path or "/") in ("/", "/home", "/i/api/1.1/account/settings.json"))
                 or (method.upper() in ("GET", "POST") and parsed.path.startswith("/i/api/graphql/")
                     and parsed.path.rsplit("/", 1)[-1] in ("HomeTimeline", "UserByScreenName"))))
+            if feedback and parsed.hostname == "x.com" and parsed.path.startswith("/i/api/graphql/"):
+                name = parsed.path.rsplit("/", 1)[-1]
+                if name == "TweetDetail" and method.upper() == "GET":
+                    variables = (kwargs.get("params") or {}).get("variables", "{}")
+                    if isinstance(variables, str):
+                        variables = json.loads(variables)
+                    allowed = variables.get("focalTweetId") == post_id and "cursor" not in variables
+                elif name == "FavoriteTweet" and method.upper() == "POST" and operation == "like_x_post":
+                    allowed = (kwargs.get("json") or {}).get("variables", {}).get("tweet_id") == post_id
             if not allowed:
                 raise ValueError("X_LOCAL_OPERATION_DENIED")
             response = await super()._send(method, url, **kwargs)
@@ -88,6 +106,51 @@ async def collect(arguments):
     try:
         if await client.user_id() != arguments["accountId"]:
             raise ValueError("X_LOCAL_ACCOUNT_MISMATCH")
+        if feedback:
+            tweet = await client.get_tweet_by_id(post_id)
+            if str(tweet.id) != post_id:
+                raise ValueError("X_LOCAL_POST_INVALID")
+            liked = tweet.favorited
+            if type(liked) is not bool:
+                raise ValueError("X_LOCAL_LIKE_UNCERTAIN")
+            if operation == "like_x_post":
+                text_hash = hashlib.sha256((tweet.full_text or tweet.text or "").encode("utf-8")).hexdigest()
+                links = [item.get("expanded_url", "") for item in (tweet.urls or [])]
+                if text_hash != arguments.get("postTextHash") or arguments.get("directUrl") not in links:
+                    raise ValueError("X_LOCAL_POST_CHANGED")
+            if operation == "like_x_post" and not liked:
+                memory_path = arguments.get("resourceMemory", "")
+                if not os.path.isabs(memory_path) or os.path.basename(memory_path) != "resources.json":
+                    raise ValueError("X_LOCAL_REJECTION_STATE_REQUIRED")
+                with open(memory_path, "r", encoding="utf-8") as memory_file:
+                    raw = memory_file.read(32000001)
+                if len(raw) > 32000000:
+                    raise ValueError("X_LOCAL_REJECTION_STATE_REQUIRED")
+                memory = json.loads(raw)
+                if memory.get("version") != 1 or memory.get("feedbackEnabled") is not True:
+                    raise ValueError("X_LOCAL_LIKE_DISABLED")
+                aliases = memory.get("aliases", {})
+                def identity(resource):
+                    seen = set()
+                    while "user|" + resource in aliases:
+                        if resource in seen:
+                            raise ValueError("X_LOCAL_REJECTION_STATE_REQUIRED")
+                        seen.add(resource)
+                        resource = aliases["user|" + resource]
+                    return resource
+                resource = identity(arguments.get("resourceUrl", ""))
+                if not resource or any(r.get("scope") == "user" and r.get("active") is True and identity(r.get("resource", "")) == resource for r in memory.get("rejections", [])):
+                    raise ValueError("X_LOCAL_RESOURCE_REJECTED")
+                response = await client.favorite_tweet(post_id)
+                if response.json().get("errors"):
+                    raise ValueError("X_LOCAL_LIKE_UNCERTAIN")
+                # A successful mutation response is not proof of final state.
+                return {"accountId": arguments["accountId"], "postId": post_id, "requested": True}
+            return {"accountId": arguments["accountId"], "postId": post_id, "favorited": liked, "requested": False,
+                    "postUrl": "https://x.com/" + tweet.user.screen_name + "/status/" + post_id,
+                    "postTextHash": hashlib.sha256((tweet.full_text or tweet.text or "").encode("utf-8")).hexdigest(),
+                    "urls": [item.get("expanded_url", "") for item in (tweet.urls or [])
+                             if item.get("expanded_url") and token not in item["expanded_url"] and csrf not in item["expanded_url"]]}
         page = await client.get_timeline(count=100, cursor=cursor, seen_tweet_ids=seen)
         if getattr(page, "_Result__overflow", None):
             raise ValueError("X_LOCAL_PAGE_OVERFLOW")
@@ -110,7 +173,7 @@ async def collect(arguments):
                 if isinstance(value, str) and value.isascii() and value.isdecimal() and len(value) <= 16:
                     value = int(value)
                 if type(value) is int and 0 <= value <= 9007199254740991:
-                    metrics[name] = value
+                    metrics[name] = max(0, value - (1 if name == "likes" and getattr(tweet, "favorited", False) is True else 0))
             item["attributes"]["metrics"] = metrics
             if tweet.created_at:
                 item["occurredAt"] = parsedate_to_datetime(tweet.created_at).astimezone(timezone.utc).isoformat()
@@ -137,8 +200,10 @@ def serve():
             elif method == "tools/list":
                 result = {"tools": [{"name": "read_x_for_you", "description": "Read local X For You",
                     "inputSchema": {"type": "object"}}]}
-            elif method == "tools/call" and request.get("params", {}).get("name") == "read_x_for_you":
-                result = {"structuredContent": asyncio.run(collect(request["params"]["arguments"]))}
+            elif method == "tools/call" and request.get("params", {}).get("name") in ("read_x_for_you", "inspect_x_like", "like_x_post"):
+                args = dict(request["params"]["arguments"])
+                args["operation"] = request["params"]["name"]
+                result = {"structuredContent": asyncio.run(collect(args))}
             else:
                 raise ValueError("X_LOCAL_METHOD_DENIED")
             reply = {"jsonrpc": "2.0", "id": request["id"], "result": result}

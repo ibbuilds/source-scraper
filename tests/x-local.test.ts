@@ -70,3 +70,24 @@ test("free X refuses credential cursors, mismatched posts and private-library er
  for(const value of ["100",null,NaN,Infinity,-1,true,2**54])assert.deepEqual(xMetrics({likes:value}),{});
  assert.deepEqual(xMetrics({likes:100}),{likes:100});
 });
+
+
+test("runtime cycles override one-page manifests, resume commits and reset EOF for fresh posts",async()=>environment(async()=>{
+  const {mkdtempSync,rmSync}=await import("node:fs"),{join}=await import("node:path"),{tmpdir}=await import("node:os");
+  const {runProject}=await import("../packages/core/engine.ts"),{createDefaultRegistry}=await import("../packages/core/extensions.ts"),{KnowledgeStore}=await import("../packages/storage/knowledge.ts");
+  const {createPublicMetadataProcessor}=await import("../packages/processors/public-metadata.ts");
+  const root=mkdtempSync(join(tmpdir(),"ss-x-cycle-")),db=join(root,"data.sqlite"),cursors:Array<string|undefined>=[];
+  const post=(id:string)=>({...observed,id,url:"https://x.com/example/status/"+id,urls:["https://example.org/tool/"+id]});
+  let calls=0,metadata=0;
+  const pages=[{observations:[post("101")],hasMore:true,nextCursor:"a"},{observations:[post("101"),post("102")],hasMore:true,nextCursor:"b"},{observations:[],hasMore:true,nextCursor:"empty-cursor"},{observations:[post("103")],hasMore:false}];
+  const adapter=createXLocalSource({collect:async c=>{cursors.push(c.cursor);return pages[calls++];}});
+  const registry=createDefaultRegistry();registry.sources.set("x-for-you-local",adapter);
+  registry.processors.set("public-metadata",createPublicMetadataProcessor(async url=>{metadata++;return {url,metadata:{title:"Exportable tool",access:"free"}};}));
+  const project={id:"cycle-test",name:"Cycle test",sources:[source],pipeline:["x-discovery","public-metadata"],evaluator:"keyword",policy:{includeKeywords:[],excludeKeywords:[],minimumScore:0},outputs:[]};
+  try{
+    const first=await runProject(db,project,registry,{xCycle:true,maxPages:1});assert.equal(first.runs[0].endReason,"work-limit");
+    const next=await runProject(db,project,registry,{xCycle:true,maxPages:10});assert.equal(next.runs[0].pages,2);assert.equal(next.runs[0].endReason,"end-of-window");
+    const final=await runProject(db,project,registry,{xCycle:true,maxPages:10});assert.equal(final.observations,1);assert.deepEqual(cursors,[undefined,"a","b",undefined]);assert.equal(metadata,3,"unchanged committed post does not repeat metadata fetches");
+    const store=new KnowledgeStore(db);try{assert.equal(store.listEntities(project.id).length,3);}finally{store.close();}
+  }finally{rmSync(root,{recursive:true,force:true});}
+}));
