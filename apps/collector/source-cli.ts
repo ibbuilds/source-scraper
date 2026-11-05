@@ -1,3 +1,4 @@
+import {queryResources,inspectResources,reviewResources} from "../../packages/core/resource-workflow.ts";
 import {xFeedback} from "../../packages/adapters/x-feedback.ts";
 /**
  * Source Scraper: JSON-first, Obsidian-independent public CLI.
@@ -50,6 +51,7 @@ const HELP=[
 const COMMAND_FLAGS:Record<string,string[]>={
   "assessment-record":["config","db","id","key","record-json"],
   "assessment-list":["config","db","id","key","limit","offset"],
+  "resource-batch":["config","db","id"],
   "cycle-progress":["config","db","id","cycle-id"],
   "x-feedback":["config","post-id","operation","post-text-hash","direct-url","resource-memory","resource-url"],
   init:["dir"],validate:["config","extension"],run:["config","db","extension","page-size","max-pages","source-ids-json","x-cycle","cycle-id"],
@@ -232,7 +234,7 @@ function init(dir:string):void{
     observationsFile:input,databasePath:join(root,".source-scraper.sqlite"),synthetic:true});
 }
 async function execute(command:string,flags:Flags):Promise<void>{
-  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1","collection-filters-v1","candidate-thresholds-v1","x-cycle-v1","x-likes-v1"]});return;}
+  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1","collection-filters-v1","candidate-thresholds-v1","x-cycle-v1","x-likes-v1","resource-batch-v1"]});return;}
   if(command==="init"){init(flags.get("dir")||"./source-scraper-project");return;}
   if(command==="adapters"){
     const r=createDefaultRegistry(flags.get("extension")?[resolve(required(flags,"extension"))]:[]);
@@ -302,7 +304,19 @@ async function execute(command:string,flags:Flags):Promise<void>{
     if(!store.listProjects().some(row=>row.id===id)){
       throw new Error("Project not found in database: "+id);
     }
-    if(command==="cycle-progress"){
+    if(command==="resource-batch"){
+      let bytes=0;const chunks:Buffer[]=[];for await(const chunk of process.stdin){bytes+=chunk.length;if(bytes>8_000_000)throw Error("REQUEST_LIMIT");chunks.push(Buffer.from(chunk));}
+      const input=JSON.parse(Buffer.concat(chunks).toString("utf8"));if(!input||typeof input!=="object")throw Error("INVALID_RESOURCE_REQUEST");
+      if(input.operation==="query"){
+        const filter=compileCollectionFilters(project?.sources.map(s=>s.id)??store.sourceIds(id),project?.filters,input.filters);
+        output(queryResources(store,id,input,()=>createFilteredQuery(store,id,filter,{limit:Number.MAX_SAFE_INTEGER,offset:0}).records));
+      }else if(input.operation==="inspect"){
+        const filter=compileCollectionFilters(project?.sources.map(s=>s.id)??store.sourceIds(id),project?.filters);
+        output(inspectResources(store,id,input.keys,e=>filter.match(e,()=>store.filterObservations(id,e.key)).matched));
+      }
+      else if(input.operation==="review")output(reviewResources(store,id,input));
+      else throw Error("INVALID_RESOURCE_OPERATION");
+    }else if(command==="cycle-progress"){
       const cycleId=required(flags,"cycle-id");if(!/^[a-zA-Z0-9-]{16,80}$/.test(cycleId))throw Error("Invalid cycle identity");
       const progress=store.db.prepare("SELECT COALESCE(SUM(pages),0) pages,COALESCE(SUM(observations),0) observations,COALESCE(SUM(duplicates),0) duplicates FROM kb_runs WHERE project_id=? AND cycle_id=?").get(id,cycleId);
       output({schemaVersion:1,projectId:id,cycleId,...progress});

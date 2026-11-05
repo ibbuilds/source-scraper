@@ -1,0 +1,14 @@
+import {mkdtempSync,rmSync} from "node:fs";import {tmpdir} from "node:os";import {join,resolve} from "node:path";import {spawnSync} from "node:child_process";import {KnowledgeStore} from "../packages/storage/knowledge.ts";
+const root=mkdtempSync(join(tmpdir(),"ss-resource-bench-")),db=join(root,"data.sqlite"),cli=resolve("dist/source-scraper.mjs"),projectId="bench-resources",count=5000,keys=Array.from({length:count},(_,i)=>"r"+String(i).padStart(5,"0"));
+const samples={legacy20:[],batch20:[],query5000:[],page40:[],batch5000:[]};
+const run=(command,args=[],input)=>{const r=spawnSync(process.execPath,[cli,command,"--db",db,"--id",projectId,...args],{encoding:"utf8",input:input?JSON.stringify(input):undefined,maxBuffer:9_000_000});if(r.status!==0)throw Error(r.stderr);return JSON.parse(r.stdout);};
+const timed=(fn)=>{const start=performance.now(),result=fn();return {ms:Math.round((performance.now()-start)*100)/100,result};};
+try{const s=new KnowledgeStore(db);s.saveProject({id:projectId,name:"Synthetic offline workload",sources:[],pipeline:[],evaluator:"keyword",policy:{includeKeywords:[],excludeKeywords:[],minimumScore:0},outputs:[]});s.db.exec("BEGIN");const insert=s.db.prepare("INSERT INTO kb_entities VALUES(?,?,?,?,?,?,?,?)");for(const key of keys)insert.run(projectId,key,"web-resource","UI resource "+key,"https://example.org/"+key,JSON.stringify({description:"Reusable open-source UI resource fixture",license:"MIT",access:"open_source"}),"2026-01-01","2026-01-01");s.db.exec("COMMIT");s.close();
+ for(let i=0;i<3;i++){
+  samples.legacy20.push(timed(()=>{for(const key of keys.slice(0,20)){run("inspect",["--key",key]);run("review",["--key",key,"--decision","pending","--reason","Synthetic benchmark"]);run("inspect",["--key",key]);}}).ms);
+  const b=timed(()=>run("resource-batch",[],{operation:"review",requestId:"bench-20-"+i,changes:keys.slice(0,20).map(key=>({key,decision:"pending",reason:"Synthetic benchmark"}))}));if(b.result.saved!==20)throw Error("Incomplete batch");samples.batch20.push(b.ms);
+  const q=timed(()=>run("resource-batch",[],{operation:"query",limit:40}));if(q.result.total!==count||q.result.records.length!==40)throw Error("Incomplete query");samples.query5000.push(q.ms);const p=timed(()=>run("resource-batch",[],{operation:"query",selectionId:q.result.selectionId,limit:40,offset:40}));samples.page40.push(p.ms);
+ }
+ const all=timed(()=>run("resource-batch",[],{operation:"review",requestId:"bench-5000",changes:keys.map(key=>({key,decision:"approved",reason:"Synthetic benchmark"}))}));if(all.result.saved!==count)throw Error("Incomplete large batch");samples.batch5000.push(all.ms);
+ console.log(JSON.stringify({synthetic:true,network:false,node:process.version,platform:process.platform,resources:count,legacyProcessesPer20:60,batchProcessesPer20:1,returnedRowsPerQuery:40,samples}));
+}finally{rmSync(root,{recursive:true,force:true});}

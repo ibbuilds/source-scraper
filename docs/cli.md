@@ -96,3 +96,27 @@ The ChatGPT integration is a producer of findings and drafts. It does not own va
 See [Deterministic collection filters v1](collection-filters.md) for saved term/exclusion profiles, source selection, resource/source conditions and filtering before pagination. Filters do not assess editorial quality.
 
 See [Pipeline performance](pipeline-performance.md) for bulk export, metadata concurrency, cancellation and reproducible measurements.
+
+
+## Resource workflow batches
+
+`resource-batch --config project.json` accepts one JSON request on stdin (8 MB max).
+It advertises `resource-batch-v1` and never reads arbitrary executables or writes
+notes. Operations:
+
+- `query`: optional search, review (all/pending/approved/rejected), evaluation,
+  declarative filters, context, limit (1–500) and offset. Returns compact records,
+  total and a stable selectionId. Reuse selectionId to page without rescanning.
+- `inspect`: keys (1–50) returns evidence, fingerprints and configured-profile
+  membership in one process.
+- `review`: requestId plus selectionId + decision, or mixed changes. One
+  transaction supports 1–5,000 resources with per-resource stale/not-found results.
+  Pass the revision returned by query for checked resources. Reuse requestId and
+  identical input to recover the durable receipt without duplicate history.
+
+Context contains explicit canonical aliases, rejected resources, human review
+states and optional AI summary annotations. These are supplied by the local
+consumer, never inferred from post instructions. The stored selection fixes the
+set of target identities; later arrivals are not included. Changed resources are
+reported rather than overwritten. The latest 16 selections per project remain
+available. A changed context or expired selection requires a new query.
