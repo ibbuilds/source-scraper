@@ -35,8 +35,10 @@ Our account's own like is removed from the collection like counter.
 The public resource-evidence command gathers bounded repository facts and can
 verify a public homepage/repository relationship. It uses the existing public
 HTTP boundary, never receives X cookies and never installs or runs resource
-code. The separate Obsidian X client can apply deterministic UI feedback rules
-to these facts, with no model or AI dependency. Unknown resources stay pending;
+code. The separate Obsidian X client can apply user-configured feedback rules
+to these facts, with no model or AI dependency. Topics and requirements belong
+to each user's local project profile; no topic is built into the engine or client.
+Unknown resources stay pending;
 structural checks do not certify visual/aesthetic quality. Optional AI evaluation
 remains separate through MCP. The engine's keyword evaluator still means
 retrieval relevance. No inference service or additional model is installed.
