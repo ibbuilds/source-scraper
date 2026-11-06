@@ -30,6 +30,9 @@ zero created notes and no write capability. These were live runtime checks,
 not CI fixtures. Editorial review distinguished source claims from primary
 license information and left human reviews pending.
 
-The reader remains an unofficial client and sessions remain memory-only.
+The reader remains an unofficial client and does not persist credentials itself.
+The separate Obsidian plugin now supports current-user DPAPI session storage on
+Windows; other operating systems retain memory-only behavior. Credential storage
+belongs to that consumer, outside the engine database and exported data.
 A successful bounded sample is not an exhaustive feed export or a guarantee
 against future X changes. Automated tests use synthetic inputs and no account.

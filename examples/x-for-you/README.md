@@ -1,6 +1,6 @@
 # Free local X For You
 
-Uses [Twifork](https://github.com/PawiX25/twifork) 2.4.0 locally. No commercial API key, subscription, credit purchase or paid fallback. GetXAPI is retired from the CLI. A real authenticated personalized feed is not yet verified.
+Uses [Twifork](https://github.com/PawiX25/twifork) 2.4.0 locally. No commercial API key, subscription, credit purchase or paid fallback. GetXAPI is retired from the CLI. Bounded authenticated feed reads have [recorded live acceptance](../../docs/x-local-acceptance.md); this does not guarantee another account's access or future availability.
 
 On Windows run `scripts/setup-x-local.ps1` to prepare checksum-verified uv, isolated Python and pinned dependencies under `runtime-tools/`. No system Python change or account request. Elsewhere create a private Python 3.12 environment and install `scripts/requirements-x-local.txt`.
 

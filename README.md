@@ -4,7 +4,7 @@
 
 Connect a permitted source (JSON, RSS, public APIs, product pages, trusted MCP or custom SDK adapter), extract and normalize entities, deduplicate and evaluate evidence, retain provenance in SQLite, monitor changes, and export the information as **versioned JSON/NDJSON** for any consumer to use.
 
-The project is a **data engine**, not an X-specific scraper, bookmarking app, Obsidian plugin or universal scraping bypass. An optional [X For You adapter](examples/x-for-you/README.md) uses Twifork locally without a paid API, disabled until a local read grant and session setup. Its actual personalized feed access has **not** been verified.
+The project is a **data engine**, not an X-specific scraper, bookmarking app, Obsidian plugin or universal scraping bypass. An optional [X For You adapter](examples/x-for-you/README.md) uses Twifork locally without a paid API, disabled until a local read grant and session setup. Bounded authenticated feed reads have [recorded live acceptance](docs/x-local-acceptance.md); access for another account or a later session still requires its own successful run.
 
 ## Quick start — one file, zero setup for the offline demo
 
@@ -139,7 +139,7 @@ The optional Obsidian plugin remains in this monorepo as a separate package; it 
 
 ## Safety and limitations
 
-Only collect from **authorized** sources. The authenticated, algorithmically ranked X **For You** feed is **not available** through a verified connector; Following, search, bookmarks, RSS and demos must not be mislabeled as it. Public metadata, relevance scores and license fields remain evidence-dependent heuristics. A missing record is not proof of deletion. Trusted MCP and custom extensions execute as local processes with your permissions: audit before enabling. Back up existing SQLite files before migrations; source data and human decisions are not sold or uploaded by this local-first engine.
+Only collect from **authorized** sources. The optional X adapter reads the authenticated, algorithmically ranked **For You** feed; Following, search, bookmarks, RSS and demos must not be mislabeled as it. The unofficial client remains dependent on X availability and session validity. Public metadata, relevance scores and license fields remain evidence-dependent heuristics. A missing record is not proof of deletion. Trusted MCP and custom extensions execute as local processes with your permissions: audit before enabling. Back up existing SQLite files before migrations; source data and human decisions are not sold or uploaded by this local-first engine.
 
 See [architecture](docs/architecture.md), [project manifest reference](docs/projects.md), [security](docs/security.md), [CLI/data contracts](docs/cli.md), [acceptance tests](docs/acceptance-matrix.md), and [contributing](CONTRIBUTING.md).
 
