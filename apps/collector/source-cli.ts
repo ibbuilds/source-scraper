@@ -237,7 +237,7 @@ function init(dir:string):void{
     observationsFile:input,databasePath:join(root,".source-scraper.sqlite"),synthetic:true});
 }
 async function execute(command:string,flags:Flags):Promise<void>{
-  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1","collection-filters-v1","candidate-thresholds-v1","x-cycle-v1","x-likes-v1","resource-batch-v1","public-resource-evidence-v1"]});return;}
+  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1","collection-filters-v1","candidate-thresholds-v1","x-cycle-v1","x-likes-v1","resource-batch-v1","public-resource-evidence-v1","x-post-resource-urls-v1"]});return;}
   if(command==="resource-evidence"){output(await collectResourceEvidence(required(flags,"url")));return;}
   if(command==="init"){init(flags.get("dir")||"./source-scraper-project");return;}
   if(command==="adapters"){

@@ -17,6 +17,10 @@ posts and entity records, never a certification of useful resources.
 x-discovery emits resources only for directly exposed external links. Posts
 without a resource remain raw observations; existing inspiration entities are
 preserved for audit. Verified metadata retains observedResourceUrl/canonicalUrl.
+X mention evidence also exposes its retained original resourceUrls under
+x-post-resource-urls-v1. Consumers can distinguish a resource's official links
+from a mixed post without inferring URLs from text or opening another session.
+Legacy missing evidence stays unknown; the new field grants no X authority.
 
 The fixed x-feedback command admits only inspect_x_like and like_x_post.
 Both require SOURCE_SCRAPER_X_LIKES_APPROVED=local-likes-only separately from

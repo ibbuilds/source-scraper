@@ -35,3 +35,11 @@ test("paged hydration preserves ranking, filters, latest decisions and all evide
   await exportProject(db,project,registry);assert.equal(calls,1);assert.ok(expected.length>500);
  }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+test("X mention evidence retains the original expanded resource links for whole-post policy checks",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"ss-post-links-")),db=join(root,"data.sqlite"),registry=createDefaultRegistry();
+ const urls=["https://example.org/ui","https://example.org/video"];
+ registry.sources.set("fixture",{id:"fixture",async collect(){return {observations:[{id:"123",type:"x-post",text:"UI and video tools",url:"https://x.com/studio/status/123",urls}],hasMore:false};}});
+ const project=parseProject({id:"post-links",name:"Post links",sources:[{id:"local",adapter:"fixture",config:{}}],pipeline:["x-discovery"]});
+ try{assert.equal((await runProject(db,project,registry)).success,true);const store=new KnowledgeStore(db);try{assert.deepEqual(store.entityEvidence(project.id,urls[0])?.mentions[0].resourceUrls,urls);assert.equal(store.entityEvidence(project.id,urls[0])?.mentions[0].connectionId,"local");}finally{store.close();}}finally{rmSync(root,{recursive:true,force:true});}
+});
