@@ -527,6 +527,7 @@ export class KnowledgeStore extends Store {
         url:original?original.url??null:row.url,
         occurredAt:original?original.occurredAt??null:row.occurred_at,
         firstSeen:row.first_seen,lastSeen:row.last_seen,active:Boolean(row.active),
+        ...(original?.type==="x-post"?{resourceUrls:original.urls??[]}:{}),
         evidence:json(row.evidence_json,[])};
     });
     const reviews=(this.prepareCached(
