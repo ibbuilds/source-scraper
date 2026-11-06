@@ -1,6 +1,6 @@
 # X For You access
 
-**Current direction: free local Twifork; authenticated live acceptance pending.** GetXAPI was rejected, its unconsumed authorization revoked, and its adapter removed from the CLI registry. No paid fallback.
+**Current direction: free local Twifork, with bounded authenticated live acceptance recorded.** See [the acceptance evidence](x-local-acceptance.md). GetXAPI was rejected, its unconsumed authorization revoked, and its adapter removed from the CLI registry. No paid fallback. Successful past reads do not guarantee current access for another account or session.
 
 Twifork's actual `Client.get_timeline()` explicitly targets Home → For You; `get_latest_timeline()` is Following. The adapter uses the former. The official home API excludes algorithmic ranking. Search, bookmarks and Following are not relabeled as For You.
 
