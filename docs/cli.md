@@ -1,5 +1,12 @@
 # Source Scraper CLI — the public product
 
+`resource-evidence --url URL` returns bounded, read-only public repository facts
+under capability `public-resource-evidence-v1`. It accepts a repository root or
+an HTTPS root homepage whose repository link is reciprocated by that repository.
+Unknown/limited sources return pending evidence and a retry delay. No X session,
+AI, source installation, code execution, human review or account action occurs.
+Consumers own their explicit policy; this command makes no quality verdict.
+
 The product is a **local-first JSON data engine**. It is not a website, an Obsidian plugin, or an X-specific scraper. Any source adapter can produce observations; the pipeline normalizes, deduplicates and assesses entities in SQLite, preserving evidence and changes. Consumers read JSON or NDJSON and implement their own user interface or integration.
 
 Requires **Node.js >=22.16.0**. The release asset `source-scraper.mjs` is a **single self-contained JavaScript file** with its dependencies bundled. Download it and invoke it with Node; npm and Obsidian are not required for users of the binary.
