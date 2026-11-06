@@ -1,4 +1,5 @@
 import {queryResources,inspectResources,reviewResources} from "../../packages/core/resource-workflow.ts";
+import {collectResourceEvidence} from "../../packages/connectors/resource-evidence.ts";
 import {xFeedback} from "../../packages/adapters/x-feedback.ts";
 /**
  * Source Scraper: JSON-first, Obsidian-independent public CLI.
@@ -42,6 +43,7 @@ const HELP=[
   "  source-scraper assessment-list --config FILE --key KEY [--limit N --offset N]",
   "  source-scraper export --config FILE --keys-json '[\"ENTITY_KEY\"]'",
   "  source-scraper version",
+  "  source-scraper resource-evidence --url URL       Read bounded public repository evidence",
   "",
   "Defaults: a .source-scraper.sqlite database next to --config; exports go to stdout.",
   "Use --db FILE and --id PROJECT when querying without --config.",
@@ -49,6 +51,7 @@ const HELP=[
   "No Obsidian installation, GUI, X session or network account is required."
 ].join("\n");
 const COMMAND_FLAGS:Record<string,string[]>={
+  "resource-evidence":["config","url"],
   "assessment-record":["config","db","id","key","record-json"],
   "assessment-list":["config","db","id","key","limit","offset"],
   "resource-batch":["config","db","id"],
@@ -234,7 +237,8 @@ function init(dir:string):void{
     observationsFile:input,databasePath:join(root,".source-scraper.sqlite"),synthetic:true});
 }
 async function execute(command:string,flags:Flags):Promise<void>{
-  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1","collection-filters-v1","candidate-thresholds-v1","x-cycle-v1","x-likes-v1","resource-batch-v1"]});return;}
+  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1","collection-filters-v1","candidate-thresholds-v1","x-cycle-v1","x-likes-v1","resource-batch-v1","public-resource-evidence-v1"]});return;}
+  if(command==="resource-evidence"){output(await collectResourceEvidence(required(flags,"url")));return;}
   if(command==="init"){init(flags.get("dir")||"./source-scraper-project");return;}
   if(command==="adapters"){
     const r=createDefaultRegistry(flags.get("extension")?[resolve(required(flags,"extension"))]:[]);

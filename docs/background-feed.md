@@ -28,9 +28,14 @@ Cookies stay in the existing worker environment and go only to X. No paid API,
 login automation, access challenge bypass or other account action is added.
 Our account's own like is removed from the collection like counter.
 
-ChatGPT evaluates resources through the existing MCP provider. The engine's
-keyword evaluator still means retrieval relevance, not autonomous semantic
-quality. No inference service or additional model is silently installed.
+The public resource-evidence command gathers bounded repository facts and can
+verify a public homepage/repository relationship. It uses the existing public
+HTTP boundary, never receives X cookies and never installs or runs resource
+code. The separate Obsidian X client can apply deterministic UI feedback rules
+to these facts, with no model or AI dependency. Unknown resources stay pending;
+structural checks do not certify visual/aesthetic quality. Optional AI evaluation
+remains separate through MCP. The engine's keyword evaluator still means
+retrieval relevance. No inference service or additional model is installed.
 See the plugin's docs/AUTONOMOUS-FEED.md for rejection scope, feedback controls,
 restart behavior and the explicit boundary when the chat is closed.
 
