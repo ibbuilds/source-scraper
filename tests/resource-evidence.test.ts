@@ -15,6 +15,7 @@ test("missing license, archived sources and unsupported websites never become ve
 });
 test("source errors and rate limits defer verification; cancellation is not recorded as success",async()=>{
  const deferred=await collectResourceEvidence("https://github.com/org/ui",undefined,async()=>{throw Error("Unusable public text response: HTTP 429");});assert.equal(deferred.status,"pending");assert.equal(deferred.retryAfterSeconds,3600);
+ assert.equal(deferred.rateLimited,true);const missing=await collectResourceEvidence("https://github.com/org/ui",undefined,async()=>{throw Error("Unusable public text response: HTTP 404");});assert.equal(missing.rateLimited,false);assert.equal(missing.retryAfterSeconds,600);
  const abort=new AbortController();abort.abort();await assert.rejects(collectResourceEvidence("https://github.com/org/ui",abort.signal,async()=>{throw Error("cancelled");}),/cancelled/);
  await assert.rejects(collectResourceEvidence("https://secret@example.org/tool"),/INVALID_RESOURCE_URL/);
 });

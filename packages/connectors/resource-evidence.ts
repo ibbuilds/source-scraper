@@ -3,7 +3,7 @@ import {githubRepoPath,parseGithubMetadata} from "./metadata.ts";
 
 export interface PublicResourceEvidence {
  version:1;url:string;checkedAt:string;status:"checked"|"pending";
- reason?:string;retryAfterSeconds?:number;
+ reason?:string;retryAfterSeconds?:number;rateLimited?:boolean;
  repository?:{url:string;name:string;description:string;topics:string[];license:string;openSource:boolean;archived:boolean;disabled:boolean;homepage:string};
  rootEntries?:string[];readme?:string;
  package?:{name:string;description:string;main:string;module:string;exports:boolean;bin:boolean;workspaces:boolean;testScript:string};
@@ -21,7 +21,7 @@ export async function collectResourceEvidence(raw:string,signal?:AbortSignal,fet
    const page=await fetcher(raw,{accept:"text/html",types:["text/html"],maxBytes:120000,signal:deadline});
    const links=[...new Set([...page.body.matchAll(/href\s*=\s*["'](https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/?["']/gi)].map(m=>m[1]))].slice(0,2);
    for(const link of links){const candidate=githubRepoPath(link)!;const r=await fetcher(`https://api.github.com/repos/${candidate.owner}/${candidate.repo}`,{accept:"application/vnd.github+json",types:["application/json","application/vnd.github+json"],maxBytes:300000,signal:deadline});const info=JSON.parse(r.body);let homepage:URL;try{homepage=new URL(info.homepage);}catch{continue;}if(homepage.protocol==="https:"&&homepage.hostname.replace(/^www\./,"")===parsed.hostname.replace(/^www\./,"")&&homepage.pathname==="/"){repo=candidate;linkedInfo=info;result.evidence.push({url:raw,quote:`Public homepage links to ${link}; the repository identifies this same homepage.`});break;}}
-  }catch(error){if(signal?.aborted)throw Error("Public resource verification cancelled");result.reason="Public source evidence incomplete; verification deferred";result.retryAfterSeconds=/HTTP 40[34]|HTTP 429/.test(String(error))?3600:600;return result;}
+  }catch(error){if(signal?.aborted)throw Error("Public resource verification cancelled");result.rateLimited=/HTTP 403|HTTP 429/.test(String(error));result.reason=result.rateLimited?"Public source rate limit; verification deferred":"Public source evidence incomplete; verification deferred";result.retryAfterSeconds=result.rateLimited?3600:600;return result;}
  }
  if(!repo||githubRepoPath(raw)&&parsed.pathname.split("/").filter(Boolean).length!==2){result.reason="Public source needs direct reusable-output and access verification; no repository-root or verified homepage relationship available";return result;}
  const endpoint=`https://api.github.com/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`;
@@ -48,8 +48,9 @@ export async function collectResourceEvidence(raw:string,signal?:AbortSignal,fet
  }catch(error){
   if(signal?.aborted)throw Error("Public resource verification cancelled");
   const message=error instanceof Error?error.message:"Public evidence unavailable";
-  result.reason=/HTTP 40[34]|HTTP 429/.test(message)?"Public source access/rate limit; verification deferred":"Public source evidence incomplete; verification deferred";
-  result.retryAfterSeconds=/HTTP 40[34]|HTTP 429/.test(message)?3600:600;
+  result.rateLimited=/HTTP 403|HTTP 429/.test(message);
+  result.reason=result.rateLimited?"Public source rate limit; verification deferred":"Public source evidence incomplete; verification deferred";
+  result.retryAfterSeconds=result.rateLimited?3600:600;
   return result;
  }
 }
