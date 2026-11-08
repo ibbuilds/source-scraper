@@ -237,7 +237,7 @@ function init(dir:string):void{
     observationsFile:input,databasePath:join(root,".source-scraper.sqlite"),synthetic:true});
 }
 async function execute(command:string,flags:Flags):Promise<void>{
-  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1","collection-filters-v1","candidate-thresholds-v1","x-cycle-v1","x-likes-v1","resource-batch-v1","public-resource-evidence-v1","x-post-resource-urls-v1"]});return;}
+  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1","collection-filters-v1","candidate-thresholds-v1","x-cycle-v1","x-likes-v1","resource-batch-v1","resource-quality-v1","public-resource-evidence-v1","x-post-resource-urls-v1"]});return;}
   if(command==="resource-evidence"){output(await collectResourceEvidence(required(flags,"url")));return;}
   if(command==="init"){init(flags.get("dir")||"./source-scraper-project");return;}
   if(command==="adapters"){
@@ -312,7 +312,7 @@ async function execute(command:string,flags:Flags):Promise<void>{
       let bytes=0;const chunks:Buffer[]=[];for await(const chunk of process.stdin){bytes+=chunk.length;if(bytes>8_000_000)throw Error("REQUEST_LIMIT");chunks.push(Buffer.from(chunk));}
       const input=JSON.parse(Buffer.concat(chunks).toString("utf8"));if(!input||typeof input!=="object")throw Error("INVALID_RESOURCE_REQUEST");
       if(input.operation==="query"){
-        const filter=compileCollectionFilters(project?.sources.map(s=>s.id)??store.sourceIds(id),project?.filters,input.filters);
+        const filter=compileCollectionFilters(project?.sources.map(s=>s.id)??store.sourceIds(id),project?.filters,input.filters,Date.now(),input.candidateFilters);
         output(queryResources(store,id,input,()=>createFilteredQuery(store,id,filter,{limit:Number.MAX_SAFE_INTEGER,offset:0}).records));
       }else if(input.operation==="inspect"){
         const filter=compileCollectionFilters(project?.sources.map(s=>s.id)??store.sourceIds(id),project?.filters);

@@ -176,9 +176,9 @@ function compileClause(clause:FilterClause,scope:"entity"|"observation",at:numbe
     return {matched:true,reason:"matched"};
   };
 }
-export function compileCollectionFilters(sources:readonly string[],saved?:unknown,request?:unknown,at=Date.now()){
+export function compileCollectionFilters(sources:readonly string[],saved?:unknown,request?:unknown,at=Date.now(),additional?:unknown){
   if(!Number.isFinite(at))throw Error("INVALID_FILTER: evaluation time");
-  const profiles=[saved,request].filter(x=>x!==undefined).map(x=>parseCollectionFilters(x,sources));
+  const profiles=[saved,request,additional].filter(x=>x!==undefined).map(x=>parseCollectionFilters(x,sources));
   const sourceIds=sources.filter(id=>profiles.every(p=>!p.sourceIds||p.sourceIds.includes(id)));
   if(!sourceIds.length&&profiles.some(p=>p.sourceIds))throw Error("INVALID_FILTER: source selections have no common registered source");
   const entity=profiles.flatMap(p=>p.entity?[compileClause(p.entity,"entity",at)]:[]);
