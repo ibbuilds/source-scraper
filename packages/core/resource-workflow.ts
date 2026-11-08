@@ -50,7 +50,7 @@ export function queryResources(s:KnowledgeStore,projectId:string,input:any,candi
  return {schemaVersion:1,dataset:"entities",projectId,selectionId,total,offset,limit,records,hasMore:offset+rows.length<total};
 }
 export function inspectResources(s:KnowledgeStore,projectId:string,keys:unknown,matches:(entity:KnowledgeEntity)=>boolean=()=>true){
- if(!Array.isArray(keys)||!keys.length||keys.length>50||keys.some(k=>typeof k!=="string"||!k||k.length>4000)||new Set(keys).size!==keys.length)throw Error("Select 1â€“50 resource keys for evidence");
+ if(!Array.isArray(keys)||!keys.length||keys.length>50||keys.some(k=>typeof k!=="string"||!k||k.length>4000)||new Set(keys).size!==keys.length)throw Error("Select 1–50 resource keys for evidence");
  return {projectId,records:keys.map(key=>{const data=s.entityEvidence(projectId,key);return data?{key,...data,fingerprint:evidenceFingerprint(data),profileMatched:matches(data.entity)}:{key,error:"NOT_FOUND"};})};
 }
 /** One lock and transaction for a whole decision, with durable replay receipts. */
@@ -67,7 +67,7 @@ export function reviewResources(s:KnowledgeStore,projectId:string,input:any){
    if(!selection)throw Error("SELECTION_EXPIRED");if(selection.context_hash!==hash(context(input.context)))throw Error("SELECTION_CHANGED");
    changes=(s.db.prepare("SELECT entity_key,updated_at,review FROM kb_resource_selection_rows WHERE selection_id=? ORDER BY position LIMIT 5001").all(input.selectionId) as any[]).map(r=>({key:r.entity_key,updatedAt:r.updated_at,review:r.review,decision:input.decision,reason:input.reason}));
   }
-  if(!Array.isArray(changes)||!changes.length||changes.length>5000||new Set(changes.map(c=>c.key)).size!==changes.length)throw Error("Select 1â€“5,000 resources; narrow the filters for a larger result set");
+  if(!Array.isArray(changes)||!changes.length||changes.length>5000||new Set(changes.map(c=>c.key)).size!==changes.length)throw Error("Select 1–5,000 resources; narrow the filters for a larger result set");
   for(const c of changes)if(typeof c.key!=="string"||!c.key||c.key.length>4000||!validDecision(c.decision)||c.reason!==undefined&&(typeof c.reason!=="string"||c.reason.length>1000))throw Error("INVALID_BATCH_REVIEW");
   const insert=s.db.prepare("INSERT INTO kb_reviews(project_id,entity_key,decision,reason,reviewed_at) VALUES(?,?,?,?,?)"),records:any[]=[];
   for(const c of changes){const e=s.getEntity(projectId,c.key);if(!e||e.type!=="web-resource"||!e.url){records.push({key:c.key,error:"RESOURCE_NOT_FOUND"});continue;}
