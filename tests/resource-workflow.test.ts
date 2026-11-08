@@ -38,3 +38,11 @@ test("quality filters precede pagination, preserve raw inventory, and never infe
  assert.throws(()=>query(s,{context,quality:"invalid"}),/INVALID_RESOURCE_QUALITY/);
  assert.throws(()=>query(s,{context:{qualifications:{"https://example.org/x":{state:"invalid"}}}}),/INVALID_RESOURCE_QUALITY/);
 }));
+
+test("failed qualifications are automatically discarded from every ordinary view, including All and Kept",()=>fixture((s,add)=>{
+ for(let i=0;i<100;i++)add("admission-"+i);s.reviewEntity(project.id,"admission-0","approved","Keep does not override admission");
+ const qualifications=Object.fromEntries(Array.from({length:25},(_,i)=>["https://example.org/admission-"+i,{state:"excluded",category:"tools",entityUpdatedAt:"2026-01-01",at:"2026-01-02",reason:"Paid core fails free-access rule"}]));
+ const context={qualifications};assert.equal(query(s,{context,quality:"all"}).total,75);assert.equal(query(s,{context}).total,75);assert.equal(query(s,{context,quality:"all",review:"approved"}).total,0);
+ assert.equal(query(s,{context,quality:"excluded"}).total,25);
+ assert.equal([...s.iterateEntities(project.id)].length,100);assert.equal(s.getEntity(project.id,"admission-0")!.review,"approved");assert.equal(s.getEntity(project.id,"admission-1")!.review,"pending");
+}));
