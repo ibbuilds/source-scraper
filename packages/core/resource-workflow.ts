@@ -34,6 +34,8 @@ export function queryResources(s:KnowledgeStore,projectId:string,input:any,candi
     if(e.type!=="web-resource"||!e.url)continue;const id=identity(e.url,c),review=effective(e,c),isRejected=rejected.has(id)||review==="rejected";
     if(input.review==="rejected"?!isRejected:isRejected)continue;
     if(input.review&&input.review!=="all"&&input.review!=="rejected"&&review!==input.review)continue;
+    // Failed qualification never re-enters ordinary results through "all" or Keep.
+    if(c.qualifications&&quality(e,c).state==="excluded"&&input.quality!=="excluded")continue;
     if(input.quality&&input.quality!=="all"&&quality(e,c).state!==input.quality)continue;
     if(input.evaluation&&input.evaluation!=="all"){const saved=c.assessments?.[id],evaluation=saved&&e.updatedAt>saved.at?"pending":saved?.decision??"pending";if(evaluation!==input.evaluation)continue;}
     const q=String(input.search??"").toLowerCase().trim();if(q&&![e.title,e.url,String(e.attributes.description??"")].some(v=>v.toLowerCase().includes(q)))continue;
