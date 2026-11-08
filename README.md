@@ -144,3 +144,9 @@ Only collect from **authorized** sources. The optional X adapter reads the authe
 See [architecture](docs/architecture.md), [project manifest reference](docs/projects.md), [security](docs/security.md), [CLI/data contracts](docs/cli.md), [acceptance tests](docs/acceptance-matrix.md), and [contributing](CONTRIBUTING.md).
 
 MIT licensed.
+
+## Resource qualification queries
+
+The generic resource-batch query advertises **resource-quality-v1**. Optional context.qualifications maps canonical resource URLs to caller-owned summaries (state, category, entityUpdatedAt, at, reason). Quality values qualified / pending / excluded / all filter before stable pagination. Missing or changed entity revisions are pending; qualified is never inferred from scores, engagement, human Keep or AI recommendations.
+
+The curation client owns factual/category evidence, policy/reference freshness and reviewer permissions. The engine does not hardcode UI, frontend, free-access rules or an aesthetic verdict. Optional candidateFilters uses the existing collection-filter contract, intersecting saved and request filters before pagination; it screens a review queue without deleting captured inventory. Old clients may omit both fields.

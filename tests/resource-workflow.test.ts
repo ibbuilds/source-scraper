@@ -24,3 +24,17 @@ test("invalid mixed decisions fail before any write; a changed human context inv
 test("evidence batches preserve distinct fingerprints and report missing resources",()=>fixture((s,add)=>{add("a");add("b");const p=inspectResources(s,project.id,["a","b","missing"],()=>false);assert.equal(p.records.length,3);assert.ok("fingerprint" in p.records[0]);assert.equal((p.records[0] as any).profileMatched,false);assert.equal((p.records[2] as any).error,"NOT_FOUND");assert.throws(()=>inspectResources(s,project.id,["a","a"]));}));
 
 test("explicit checked resources also carry a revision guard",()=>fixture((s,add)=>{add("a");const p=query(s);s.reviewEntity(project.id,"a","rejected","A newer explicit decision");const r=reviewResources(s,project.id,{requestId:"stale-checkbox-01",changes:[{key:"a",decision:"approved",revision:p.records[0].revision}]});assert.equal(r.saved,0);assert.equal(r.failed,1);assert.equal(s.getEntity(project.id,"a")!.review,"rejected");}));
+
+test("quality filters precede pagination, preserve raw inventory, and never infer quality from Keep or AI recommendations",()=>fixture((s,add)=>{
+ for(let i=0;i<120;i++)add("q"+i);
+ s.reviewEntity(project.id,"q0","approved","Keep is separate from qualification");
+ const qualifications=Object.fromEntries([41,81].map(i=>["https://example.org/q"+i,{state:"qualified",category:"research",entityUpdatedAt:"2026-01-01",at:"2026-01-02",reason:"Evidence reviewed"}]));
+ const context={qualifications};const p=query(s,{context,quality:"qualified",limit:1});
+ assert.equal(p.total,2);assert.equal(p.records.length,1);assert.equal(p.records[0].resourceQuality?.state,"qualified");
+ assert.equal(query(s,{context,quality:"pending"}).total,118);assert.equal(query(s,{context,quality:"all"}).total,120);
+ const next=queryResources(s,project.id,{context,quality:"qualified",selectionId:p.selectionId,offset:1,limit:1},()=>{throw Error("Must not rescan");});assert.equal(next.records.length,1);
+ s.db.prepare("UPDATE kb_entities SET updated_at='2026-01-03' WHERE entity_key='q41'").run();
+ assert.equal(query(s,{context,quality:"qualified"}).total,1);
+ assert.throws(()=>query(s,{context,quality:"invalid"}),/INVALID_RESOURCE_QUALITY/);
+ assert.throws(()=>query(s,{context:{qualifications:{"https://example.org/x":{state:"invalid"}}}}),/INVALID_RESOURCE_QUALITY/);
+}));

@@ -206,3 +206,12 @@ test("source filter lookup uses an entity/active/order index instead of scanning
     assert.doesNotMatch(details,/SCAN m|TEMP B-TREE/);
   }finally{store.close();rmSync(root,{recursive:true,force:true});}
 });
+
+test("saved, runtime and candidate screening intersect at one clock and one supporting observation",()=>{
+ const at=Date.parse("2026-11-07T00:00:00Z"),saved={version:1,observation:{includeTerms:["UI"]}},runtime={version:1,entity:{includeTerms:["design"]}},screen={version:1,observation:{includeTerms:["free"]}};
+ const filter=compileCollectionFilters(sources,saved,runtime,at,screen);
+ assert.equal(filter.evaluatedAt,"2026-11-07T00:00:00.000Z");
+ assert.equal(filter.match({title:"Design resource"},()=>[{sourceId:"alpha",observation:{text:"UI resource"}},{sourceId:"alpha",observation:{text:"Free resource"}}]).matched,false);
+ assert.equal(filter.match({title:"Design resource"},()=>[{sourceId:"alpha",observation:{text:"Free UI resource"}}]).matched,true);
+ assert.equal(filter.match({title:"Unrelated"},()=>[{sourceId:"alpha",observation:{text:"Free UI resource"}}]).matched,false);
+});
