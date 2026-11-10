@@ -48,9 +48,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           npm pack --pack-destination dist --ignore-scripts --silent
-          test -s dist/source-scraper-0.14.0.tgz
-          tar -tzf dist/source-scraper-0.14.0.tgz | grep -Fx package/dist/source-scraper.mjs
-          if tar -tzf dist/source-scraper-0.14.0.tgz | grep -Eq 'apps/obsidian-plugin|obsidian-x-feed-scraper.zip|node_modules'; then
+          version=$(node -p "require('./package.json').version")
+          test -s "dist/source-scraper-${version}.tgz"
+          tar -tzf "dist/source-scraper-${version}.tgz" | grep -Fx package/dist/source-scraper.mjs
+          if tar -tzf "dist/source-scraper-${version}.tgz" | grep -Eq 'apps/obsidian-plugin|obsidian-x-feed-scraper.zip|node_modules'; then
             echo "CLI package must not include Obsidian or node_modules"
             exit 1
           fi
@@ -60,7 +61,7 @@ jobs:
           name: source-scraper-cli
           path: |
             dist/source-scraper.mjs
-            dist/source-scraper-0.14.0.tgz
+            dist/source-scraper-*.tgz
           if-no-files-found: error
           retention-days: 30
       - uses: actions/upload-artifact@v4

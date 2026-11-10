@@ -1,6 +1,6 @@
 {
   "name": "source-scraper",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "description": "JSON-first, source-independent data collection, curation and change tracking",
@@ -22,7 +22,8 @@
     "legacy:serve": "node --experimental-strip-types apps/collector/cli.ts serve",
     "sync": "node --experimental-strip-types apps/collector/cli.ts sync",
     "cli": "node --experimental-strip-types apps/collector/cli.ts",
-    "serve": "node --experimental-strip-types apps/collector/cli.ts serve"
+    "serve": "node --experimental-strip-types apps/collector/cli.ts serve",
+    "pretest": "npm run package"
   },
   "dependencies": {
     "fast-xml-parser": "^5.2.5"

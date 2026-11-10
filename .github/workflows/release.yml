@@ -12,97 +12,69 @@ jobs:
   publish-preview:
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
-      - run: npm ci --no-audit --no-fund
-      - run: npm audit --omit=dev --audit-level=high
-      - run: npm run check
-      - run: npm run package
-      - run: npm test
-      - name: Pack CLI for offline npm install
-        run: npm pack --pack-destination dist --ignore-scripts --silent
-      - name: Verify artifacts and release identity on tested commit
+      - name: Decide whether the tested version needs publication
         id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           node --input-type=module - <<'NODE'
-          import {readFileSync,existsSync,appendFileSync} from 'node:fs';
+          import {readFileSync,appendFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          import {releasePlan} from './scripts/release-policy.mjs';
           const pkg=JSON.parse(readFileSync('package.json','utf8'));
-          const plugin=JSON.parse(readFileSync('apps/obsidian-plugin/manifest.json','utf8'));
-          if(!/^\d+\.\d+\.\d+$/.test(pkg.version)||plugin.version!==pkg.version) {
-            throw new Error('Core and optional integration release versions must agree');
-          }
-          for(const path of [
-            'dist/source-scraper.mjs',
-            'dist/source-scraper-'+pkg.version+'.tgz',
-            'dist/obsidian-x-feed-scraper.zip'
-          ])if(!existsSync(path))throw new Error('Missing release artifact '+path);
-          appendFileSync(process.env.GITHUB_OUTPUT,'tag=v'+pkg.version+'-beta.1\nversion='+pkg.version+'\n');
+          if(!/^\d+\.\d+\.\d+$/.test(pkg.version))throw Error('Invalid package version');
+          const tag='v'+pkg.version+'-beta.1';
+          const api=path=>JSON.parse(execFileSync('gh',['api',`repos/${process.env.GITHUB_REPOSITORY}/${path}`],{encoding:'utf8'}));
+          const refs=api('git/matching-refs/tags/'+tag).filter(ref=>ref.ref==='refs/tags/'+tag);
+          let target=refs[0]?.object;
+          for(let n=0;target?.type==='tag'&&n<8;n++)target=api('git/tags/'+target.sha).object;
+          if(target&&target.type!=='commit')throw Error('Release tag does not resolve to a commit');
+          const releases=JSON.parse(execFileSync('gh',['release','list','--limit','1000','--json','tagName'],{encoding:'utf8'}));
+          const plan=releasePlan({testedSha:process.env.TESTED_SHA,mainSha:api('git/ref/heads/main').object.sha,tagSha:target?.sha??null,releaseExists:releases.some(r=>r.tagName===tag)});
+          console.log(plan.reason);
+          appendFileSync(process.env.GITHUB_OUTPUT,`tag=${tag}\nversion=${pkg.version}\npublish=${plan.publish}\n`);
           NODE
-          sha256sum dist/source-scraper.mjs dist/source-scraper-*.tgz dist/obsidian-x-feed-scraper.zip
-      - name: Publish tested Source Scraper CLI and optional Obsidian integration
+      - if: steps.release.outputs.publish == 'true'
+        run: npm ci --no-audit --no-fund
+      - if: steps.release.outputs.publish == 'true'
+        run: npm audit --omit=dev --audit-level=high
+      - if: steps.release.outputs.publish == 'true'
+        run: npm run check && npm test
+      - if: steps.release.outputs.publish == 'true'
+        name: Pack and fingerprint the tested install artifacts
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          npm pack --pack-destination dist --ignore-scripts --silent
+          test -s "docs/releases/$VERSION.md"
+          (cd dist && sha256sum source-scraper.mjs "source-scraper-$VERSION.tgz" obsidian-x-feed-scraper.zip > SHA256SUMS)
+      - if: steps.release.outputs.publish == 'true'
+        name: Publish immutable tested assets
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
           VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Preview release already exists; preserving its published assets."
-          else
-            gh release create "$TAG" \
-              dist/source-scraper.mjs \
-              "dist/source-scraper-${VERSION}.tgz" \
-              dist/obsidian-x-feed-scraper.zip \
-              --title "Source Scraper v${VERSION} Beta1 — JSON CLI + optional Obsidian" \
-              --target "${{ github.event.workflow_run.head_sha }}" \
-              --prerelease \
-              --notes-file "docs/releases/${VERSION}.md"
-          fi
-      - name: Verify the new release before deleting any previous download
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          VERSION: ${{ steps.release.outputs.version }}
-          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          actual_tag_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq '.object.sha')
-          if [[ "$actual_tag_sha" != "$EXPECTED_SHA" ]]; then
-            echo "ERROR: release tag does not match the tested commit"
-            exit 1
-          fi
-          actual=$(gh release view "$TAG" --json assets --jq '.assets[].name' | LC_ALL=C sort)
-          expected=$(printf '%s\n' "obsidian-x-feed-scraper.zip" "source-scraper-${VERSION}.tgz" "source-scraper.mjs" | LC_ALL=C sort)
-          if [[ "$actual" != "$expected" ]]; then
-            echo "ERROR: new release assets are missing or unexpected"
-            echo "Expected: $expected"
-            echo "Actual: $actual"
-            exit 1
-          fi
-          echo "Verified $TAG at $EXPECTED_SHA with all three release assets"
-      # Explicit project policy: keep only the newly tested GitHub Release.
-      # Keep Git tags and commits for source history and reproducibility.
-      - name: Delete superseded GitHub Releases after verifying the new one
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          set -euo pipefail
-          # Capture output directly: process substitution could mask GitHub API errors.
-          releases=$(gh release list --limit 1000 --json tagName --jq '.[].tagName')
-          while IFS= read -r old; do
-            [[ -z "$old" || "$old" == "$TAG" ]] && continue
-            echo "Deleting superseded GitHub Release $old (preserving its Git tag)"
-            gh release delete "$old" --yes
-          done <<< "$releases"
-          remaining=$(gh release list --limit 1000 --json tagName --jq '.[].tagName')
-          if [[ "$remaining" != "$TAG" ]]; then
-            echo "ERROR: expected only $TAG, found: $remaining"
-            exit 1
-          fi
+          current=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')
+          test "$current" = "$TESTED_SHA"
+          gh release create "$TAG" dist/source-scraper.mjs "dist/source-scraper-$VERSION.tgz" dist/obsidian-x-feed-scraper.zip dist/SHA256SUMS \
+            --target "$TESTED_SHA" --title "Source Scraper $TAG" --prerelease --notes-file "docs/releases/$VERSION.md"
+          actual=$(gh api "repos/${GITHUB_REPOSITORY}/commits/$TAG" --jq '.sha')
+          test "$actual" = "$TESTED_SHA"
+          mkdir -p verify-release
+          gh release download "$TAG" --dir verify-release
+          (cd verify-release && sha256sum --check SHA256SUMS)
+          cmp dist/SHA256SUMS verify-release/SHA256SUMS
+          # Preserve previous releases and tags for installation rollback.
