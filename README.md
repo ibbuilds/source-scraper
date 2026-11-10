@@ -8,7 +8,7 @@ The project is a **data engine**, not an X-specific scraper, bookmarking app, Ob
 
 ## Quick start — one file, zero setup for the offline demo
 
-**Requirement:** Node.js **22.16+**. Download [`source-scraper.mjs` from v0.14.0-beta.1](https://github.com/ibbuilds/source-scraper/releases/download/v0.14.0-beta.1/source-scraper.mjs), then:
+**Requirement:** Node.js **22.16+**. Download [`source-scraper.mjs` from v0.15.0-beta.1](https://github.com/ibbuilds/source-scraper/releases/download/v0.15.0-beta.1/source-scraper.mjs), then:
 
 ```sh
 node source-scraper.mjs init --dir ./demo
@@ -109,7 +109,7 @@ node dist/source-scraper.mjs init --dir ./demo
 npm test
 ```
 
-The `source-scraper-0.14.0.tgz` asset is also provided for users who prefer a local npm package. **The package has not been published to npm;** do not confuse this tarball with a public registry listing.
+The `source-scraper-0.15.0.tgz` asset is also provided for users who prefer a local npm package. **The package has not been published to npm;** do not confuse this tarball with a public registry listing.
 
 ## Performance and release policy
 
@@ -124,9 +124,7 @@ and 65,000 keyword assessments about 1.4× faster. Those are targeted
 CPU-bound tests, **not universal speedups of scraping, network access or the
 whole engine**. Full unit, integration and safety tests remain mandatory.
 
-GitHub **Releases** intentionally has **one current tested release**; old Git
-tags and commits remain. The release workflow verifies new downloads before
-removing the previous GitHub Release.
+GitHub releases and tags are immutable. New tested versions include SHA-256 checksums; previous downloads remain available for rollback. Maintenance without a version bump does not relabel an old release as the current commit.
 
 ## Optional integrations
 
@@ -135,7 +133,7 @@ removing the previous GitHub Release.
 - **Webhooks:** opt-in watch-alert output with bounded retries and idempotency state. These are distinct from the CLI's offline JSON exports.
 - **API / legacy workflow:** still available as migration and integration surfaces, but not required for the JSON-first CLI.
 
-The optional Obsidian plugin remains in this monorepo as a separate package; it has **not** yet been split into another GitHub repository.
+The legacy optional `x-feed-scraper` integration remains in this monorepo for compatibility. The current review-only client is developed separately in [obsidian-source-scraper-plugin](https://github.com/ibbuilds/obsidian-source-scraper-plugin). Use that client for the existing Vault as MCP integration; do not install the legacy ZIP over it.
 
 ## Safety and limitations
 

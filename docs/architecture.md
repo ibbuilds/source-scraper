@@ -107,4 +107,4 @@ SQLite remains outside Obsidian vault sync by default. The plugin uses an embedd
 
 An optional webhook output sends only configured watch alerts for eligible entities. It uses a durable per-output ledger, a 30-second export budget and a stable idempotency key; the receiver must deduplicate ambiguous retries. Read-only delivery status is available to the CLI, authenticated API and Obsidian panel. Collection state and outbound delivery state are separate.
 
-The personalized X For You feed remains a **missing, separately tracked authorized adapter**. The generic engine neither implements undocumented X APIs nor claims generic RSS is an equivalent.
+The optional `x-for-you-local` adapter reads authorized bounded For You windows using the local Twifork worker. Historical live acceptance is recorded in `x-local-acceptance.md`; each current session still needs its own successful run. The generic engine remains independent of X. RSS, Following and search are not relabeled as For You.
