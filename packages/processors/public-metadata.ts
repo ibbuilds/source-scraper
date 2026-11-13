@@ -27,18 +27,20 @@ export function createPublicMetadataProcessor(fetchMetadata:typeof fetchPublicMe
     // Completion timing cannot decide which unique URLs receive the request budget.
     const tasks=previous.map(async(draft):Promise<EntityDraft>=>{
       if(!draft.url||isXUrl(draft.url)||new URL(draft.url).hostname==="t.co")return draft;
+      if(draft.attributes?.metadataState==="complete"||Number(draft.attributes?.metadataRetryAt??0)>Date.now())return draft;
       let pending=session.cache.get(draft.url);
       if(!pending){
-        if(session.count>=20)return draft;
+        if(session.count>=20)return {...draft,attributes:{...(draft.attributes??{}),metadataState:"pending"}};
         session.count++;pending=schedule(draft.url);session.cache.set(draft.url,pending);
       }
       const result=await pending;
       if(context.signal.aborted)throw Error("Processing aborted");
-      if(!result)return {...draft,evidence:[...(draft.evidence||[]),
-        {signal:"metadata-unavailable",detail:"Public metadata could not be verified"}]};
+      const attempts=Math.min(30,Number(draft.attributes?.metadataAttempts??0)+1);
+      if(!result)return {...draft,attributes:{...(draft.attributes??{}),metadataState:"retry",metadataAttempts:attempts,metadataRetryAt:Date.now()+Math.min(3600000,30000*2**Math.min(attempts-1,7))},evidence:[...(draft.evidence||[]).filter(e=>e.signal!=="metadata-unavailable"),
+        {signal:"metadata-unavailable",detail:"Public metadata could not be verified; a bounded retry is queued"}]};
       const info=result.metadata;
       return {...draft,key:normalizeUrl(result.url),url:normalizeUrl(result.url),title:info.title||draft.title,
-        attributes:{...(draft.attributes||{}),observedResourceUrl:draft.url,canonicalUrl:normalizeUrl(result.url),
+        attributes:{...(draft.attributes||{}),metadataState:"complete",metadataRetryAt:null,metadataAttempts:attempts,observedResourceUrl:draft.url,canonicalUrl:normalizeUrl(result.url),
           ...(info.description?{description:info.description}:{}),...(info.license?{license:info.license}:{}),
           ...(info.access?{access:info.access}:{}),...(info.contentType?{contentType:info.contentType}:{})},
         evidence:[...(draft.evidence||[]),

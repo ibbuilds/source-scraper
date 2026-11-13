@@ -8,7 +8,7 @@ The project is a **data engine**, not an X-specific scraper, bookmarking app, Ob
 
 ## Quick start — one file, zero setup for the offline demo
 
-**Requirement:** Node.js **22.16+**. Download [`source-scraper.mjs` from v0.15.0-beta.1](https://github.com/ibbuilds/source-scraper/releases/download/v0.15.0-beta.1/source-scraper.mjs), then:
+**Requirement:** Node.js **22.16+**. Download [`source-scraper.mjs` from v0.16.0-beta.1](https://github.com/ibbuilds/source-scraper/releases/download/v0.16.0-beta.1/source-scraper.mjs), then:
 
 ```sh
 node source-scraper.mjs init --dir ./demo

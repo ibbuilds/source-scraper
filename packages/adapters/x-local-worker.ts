@@ -48,6 +48,31 @@ def write_checkpoint(cursor, seen, observations):
     return cursor  # Never lose a valid long continuation to make room for IDs.
 
 
+def media_evidence(tweet):
+    urls, complete = [], True
+    for media in (getattr(tweet, "media", None) or []):
+        kind = getattr(media, "type", None)
+        url = getattr(media, "source_url", None)
+        if kind in ("video", "animated_gif"):
+            variants = (getattr(media, "video_info", None) or {}).get("variants", [])
+            playable = [v for v in variants if isinstance(v, dict) and v.get("content_type") == "video/mp4"
+                        and isinstance(v.get("url"), str) and urlparse(v["url"]).scheme == "https"
+                        and urlparse(v["url"]).hostname == "video.twimg.com"]
+            url = max(playable, key=lambda v: v.get("bitrate", 0) if type(v.get("bitrate", 0)) is int else 0)["url"] if playable else None
+        elif kind != "photo":
+            complete = False
+        parsed = urlparse(url or "")
+        if parsed.scheme == "https" and parsed.hostname in ("pbs.twimg.com", "video.twimg.com") and not parsed.username and not parsed.password:
+            urls.append(url)
+        else:
+            complete = False
+    # Embedded quotes, reshares and long-form articles need their own complete
+    # context. Never certify them from a flattened text or preview alone.
+    if getattr(tweet, "is_quote_status", False) or getattr(tweet, "retweeted_tweet", None) or getattr(tweet, "article", None):
+        complete = False
+    return urls, complete
+
+
 async def collect(arguments):
     token = os.environ.get("SOURCE_SCRAPER_X_ACCOUNT_SESSION", "")
     csrf = os.environ.get("SOURCE_SCRAPER_X_CSRF", "")
@@ -116,7 +141,7 @@ async def collect(arguments):
             if operation == "like_x_post":
                 text_hash = hashlib.sha256((tweet.full_text or tweet.text or "").encode("utf-8")).hexdigest()
                 links = [item.get("expanded_url", "") for item in (tweet.urls or [])]
-                if text_hash != arguments.get("postTextHash") or arguments.get("directUrl") not in links:
+                if text_hash != arguments.get("postTextHash") or (arguments.get("target") != "post" and arguments.get("directUrl") not in links):
                     raise ValueError("X_LOCAL_POST_CHANGED")
             if operation == "like_x_post" and not liked:
                 memory_path = arguments.get("resourceMemory", "")
@@ -138,9 +163,29 @@ async def collect(arguments):
                         seen.add(resource)
                         resource = aliases["user|" + resource]
                     return resource
-                resource = identity(arguments.get("resourceUrl", ""))
-                if not resource or any(r.get("scope") == "user" and r.get("active") is True and identity(r.get("resource", "")) == resource for r in memory.get("rejections", [])):
-                    raise ValueError("X_LOCAL_RESOURCE_REJECTED")
+                if arguments.get("target") == "post":
+                    post_url = "https://x.com/" + tweet.user.screen_name + "/status/" + post_id
+                    if any(r.get("scope") == "user" and r.get("active") is True and identity(r.get("resource", "")) == identity(post_url) for r in memory.get("rejections", [])):
+                        raise ValueError("X_LOCAL_RESOURCE_REJECTED")
+                    from datetime import datetime
+                    review = memory.get("postReviews", {}).get(arguments["accountId"] + "|" + post_id, {})
+                    media, complete = media_evidence(tweet)
+                    likes = getattr(tweet, "favorite_count", None)
+                    if (not complete or review.get("id") != arguments.get("decisionId") or review.get("profileHash") != arguments.get("profileHash")
+                            or review.get("state") != "pertinent" or review.get("wholePostReviewed") is not True
+                            or review.get("uncertainties") != [] or review.get("postTextHash") != text_hash
+                            or review.get("postUrl") != "https://x.com/" + tweet.user.screen_name + "/status/" + post_id
+                            or set(review.get("urls", [])) != set(links) or set(review.get("media", [])) != set(media)
+                            or type(likes) is not int or type(review.get("minimumLikes")) is not int or likes < review["minimumLikes"]
+                            or datetime.fromisoformat(review.get("expiresAt", "").replace("Z", "+00:00")) <= datetime.now(timezone.utc)
+                            or not any(a.get("target") == "post" and a.get("decisionId") == review.get("id")
+                                       and a.get("accountId") == arguments["accountId"] and a.get("postId") == post_id
+                                       and a.get("state") == "in-progress" for a in memory.get("actions", []))):
+                        raise ValueError("X_LOCAL_POST_REVIEW_REQUIRED")
+                else:
+                    resource = identity(arguments.get("resourceUrl", ""))
+                    if not resource or any(r.get("scope") == "user" and r.get("active") is True and identity(r.get("resource", "")) == resource for r in memory.get("rejections", [])):
+                        raise ValueError("X_LOCAL_RESOURCE_REJECTED")
                 response = await client.favorite_tweet(post_id)
                 if response.json().get("errors"):
                     raise ValueError("X_LOCAL_LIKE_UNCERTAIN")
@@ -149,6 +194,7 @@ async def collect(arguments):
             return {"accountId": arguments["accountId"], "postId": post_id, "favorited": liked, "requested": False,
                     "postUrl": "https://x.com/" + tweet.user.screen_name + "/status/" + post_id,
                     "postTextHash": hashlib.sha256((tweet.full_text or tweet.text or "").encode("utf-8")).hexdigest(),
+                    "media": media_evidence(tweet)[0],
                     "urls": [item.get("expanded_url", "") for item in (tweet.urls or [])
                              if item.get("expanded_url") and token not in item["expanded_url"] and csrf not in item["expanded_url"]]}
         page = await client.get_timeline(count=100, cursor=cursor, seen_tweet_ids=seen)
@@ -156,13 +202,16 @@ async def collect(arguments):
             raise ValueError("X_LOCAL_PAGE_OVERFLOW")
         observations = []
         for tweet in page:
+            media_urls, media_complete = media_evidence(tweet)
             item = {"id": str(tweet.id), "type": "x-post",
                 "title": (tweet.full_text or tweet.text or "X post")[:180],
                 "text": tweet.full_text or tweet.text or "",
                 "url": "https://x.com/" + tweet.user.screen_name + "/status/" + str(tweet.id),
                 "urls": [item.get("expanded_url", "") for item in (tweet.urls or []) if item.get("expanded_url")],
-                "media": [media.source_url for media in (tweet.media or []) if getattr(media, "source_url", None)],
-                "attributes": {"author": tweet.user.screen_name, "collector": "twifork", "feed": "for-you"}}
+                "media": media_urls,
+                "attributes": {"author": tweet.user.screen_name, "collector": "twifork", "feed": "for-you",
+                    "mediaCount": len(getattr(tweet, "media", None) or []),
+                    "mediaEvidenceComplete": media_complete}}
             # Fixed public counters, without copying the library's raw object.
             metrics = {}
             for name, attribute in (("likes", "favorite_count"), ("reposts", "retweet_count"), ("replies", "reply_count"), ("quotes", "quote_count"), ("views", "view_count")):
@@ -209,7 +258,8 @@ def serve():
             reply = {"jsonrpc": "2.0", "id": request["id"], "result": result}
         except Exception as error:
             message = str(error)
-            safe = message if message.startswith("X_LOCAL_") and all(c.isupper() or c.isdigit() or c == "_" for c in message) else "X_LOCAL_READ_FAILED"
+            category = type(error).__name__
+            safe = message if message.startswith("X_LOCAL_") and all(c.isupper() or c.isdigit() or c == "_" for c in message) else ("X_LOCAL_TIMEOUT" if category in ("ReadTimeout", "ConnectTimeout", "TimeoutError", "PoolTimeout", "WriteTimeout") else "X_LOCAL_TRANSPORT_FAILED" if category in ("ReadError", "ConnectError", "RemoteProtocolError", "NetworkError") else "X_LOCAL_READ_FAILED")
             reply = {"jsonrpc": "2.0", "id": request.get("id") if isinstance(request, dict) else None,
                 "error": {"code": -32000, "message": safe}}
         print(json.dumps(reply), flush=True)

@@ -60,6 +60,8 @@ export class KnowledgeStore extends Store {
        "CREATE INDEX IF NOT EXISTS kb_reviews_lookup ON kb_reviews(project_id,entity_key,id DESC);" +
       "CREATE TABLE IF NOT EXISTS kb_runs (id TEXT PRIMARY KEY,project_id TEXT NOT NULL,connection_id TEXT,status TEXT NOT NULL,started_at TEXT NOT NULL,ended_at TEXT,observations INTEGER NOT NULL DEFAULT 0,new_entities INTEGER NOT NULL DEFAULT 0,duplicates INTEGER NOT NULL DEFAULT 0,error TEXT);" +
       "CREATE TABLE IF NOT EXISTS kb_checkpoints (project_id TEXT NOT NULL,connection_id TEXT NOT NULL,cursor TEXT,updated_at TEXT NOT NULL,PRIMARY KEY(project_id,connection_id));" +
+      "CREATE TABLE IF NOT EXISTS kb_processing_queue(project_id TEXT NOT NULL,connection_id TEXT NOT NULL,item_id TEXT NOT NULL,processor_id TEXT NOT NULL,next_at INTEGER NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(project_id,connection_id,item_id,processor_id));" +
+      "CREATE INDEX IF NOT EXISTS kb_processing_due ON kb_processing_queue(project_id,processor_id,next_at,updated_at);" +
       "CREATE INDEX IF NOT EXISTS kb_entities_type ON kb_entities(project_id,type);" +
       "CREATE INDEX IF NOT EXISTS kb_mentions_entity ON kb_mentions(project_id,entity_key);" +
       "CREATE INDEX IF NOT EXISTS kb_assessments_score ON kb_assessments(project_id,score DESC);"
@@ -209,13 +211,18 @@ export class KnowledgeStore extends Store {
   saveBatch(projectId:string,source:ProjectSource,items:Array<{
     observation:Observation;entities:Array<{draft:EntityDraft;assessment:Assessment}>;
   }>,nextCursor:string|undefined,evaluatorId:string,watchRules:readonly ChangeRule[]=[],
-  protectObservationIdentity=false,runId?:string):{observations:number;newEntities:number;duplicates:number}{
+  protectObservationIdentity=false,runId?:string,processingOnly=false):{observations:number;newEntities:number;duplicates:number}{
     const count={observations:0,newEntities:0,duplicates:0};
     const date=now();
     const assessedEntities=new Set<string>();
     this.db.exec("BEGIN IMMEDIATE");
     try{
       for(const {observation,entities} of items){
+        const pending=entities.filter(e=>["pending","retry"].includes(String(e.draft.attributes?.metadataState)));
+        if(pending.length){
+          const nextAt=Math.min(...pending.map(e=>Number(e.draft.attributes?.metadataRetryAt??0)));
+          this.prepareCached("INSERT INTO kb_processing_queue VALUES(?,?,?,'public-metadata',?,?) ON CONFLICT(project_id,connection_id,item_id,processor_id) DO UPDATE SET next_at=excluded.next_at,updated_at=excluded.updated_at").run(projectId,source.id,observation.id,nextAt,date);
+        }else if(entities.some(e=>e.draft.attributes?.metadataState==="complete"))this.prepareCached("DELETE FROM kb_processing_queue WHERE project_id=? AND connection_id=? AND item_id=? AND processor_id='public-metadata'").run(projectId,source.id,observation.id);
         const observationContent=JSON.stringify(observation);
         const observationHash=hash(observationContent);
         const oldObservation=this.prepareCached(
@@ -260,7 +267,7 @@ export class KnowledgeStore extends Store {
               prior.reasons_json===JSON.stringify(assessment.reasons));
           })){
           // last_seen is the one field that must advance on a repeated read.
-          this.prepareCached("UPDATE kb_observations SET last_seen=? "+
+          if(!processingOnly)this.prepareCached("UPDATE kb_observations SET last_seen=? "+
             "WHERE project_id=? AND connection_id=? AND item_id=?")
             .run(date,projectId,source.id,observation.id);
           count.observations++;
@@ -282,7 +289,7 @@ export class KnowledgeStore extends Store {
           observation.title??null,observation.text??null,observation.url??null,
           JSON.stringify(observation.attributes||{}),JSON.stringify(observation.media||[]),
           observation.occurredAt??null,date,date,observationContent);
-        this.prepareCached(
+        if(!processingOnly)this.prepareCached(
           "UPDATE kb_observations SET last_seen=?,title=?,text=?,url=?,attributes_json=?,media_json=?,occurred_at=?,observation_json=? "+
           "WHERE project_id=? AND connection_id=? AND item_id=?"
         ).run(date,observation.title??null,observation.text??null,observation.url??null,
@@ -375,7 +382,7 @@ export class KnowledgeStore extends Store {
         }
       }
       for(const key of assessedEntities)this.refreshAssessment(projectId,key,date);
-      this.prepareCached(
+      if(!processingOnly)this.prepareCached(
         "INSERT INTO kb_checkpoints(project_id,connection_id,cursor,updated_at) VALUES(?,?,?,?) "+
         "ON CONFLICT(project_id,connection_id) DO UPDATE SET cursor=excluded.cursor,updated_at=excluded.updated_at"
       ).run(projectId,source.id,nextCursor??null,date);

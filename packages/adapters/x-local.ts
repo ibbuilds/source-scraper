@@ -28,7 +28,7 @@ export function workerPath():string{
 }
 const safeWorkerErrors=new Set(["X_LOCAL_SESSION_REQUIRED","X_LOCAL_LIBRARY_VERSION",
   "X_LOCAL_DESTINATION_DENIED","X_LOCAL_OPERATION_DENIED","X_LOCAL_ACCOUNT_MISMATCH",
-  "X_LOCAL_PAGE_OVERFLOW","X_LOCAL_INPUT_LIMIT","X_LOCAL_METHOD_DENIED","X_LOCAL_READ_FAILED",
+  "X_LOCAL_PAGE_OVERFLOW","X_LOCAL_INPUT_LIMIT","X_LOCAL_METHOD_DENIED","X_LOCAL_READ_FAILED","X_LOCAL_TIMEOUT","X_LOCAL_TRANSPORT_FAILED","X_LOCAL_RUNTIME_UNAVAILABLE",
   ...Array.from({length:300},(_,i)=>"X_LOCAL_HTTP_"+(i+300))]);
 const localWorkerSource=createMcpStdioSource(safeWorkerErrors);
 export function createXLocalSource(options:{collect?:(context:SourceContext)=>Promise<ObservationPage>;workerPath?:()=>string}={}):SourceAdapter{
@@ -52,6 +52,11 @@ export function createXLocalSource(options:{collect?:(context:SourceContext)=>Pr
       arguments:{accountId},passEnv:["SOURCE_SCRAPER_X_ACCOUNT_SESSION","SOURCE_SCRAPER_X_CSRF"],timeoutMs:30000}}});}
     catch(error){
       const code=error instanceof Error?/X_LOCAL_[A-Z0-9_]+/.exec(error.message)?.[0]:undefined;
+      if(!code&&error instanceof Error){
+        if(/timed out|timeout/i.test(error.message))throw Error("X_LOCAL_TIMEOUT");
+        if(/process could not start/i.test(error.message))throw Error("X_LOCAL_RUNTIME_UNAVAILABLE");
+        if(/server ended|transport failed/i.test(error.message))throw Error("X_LOCAL_TRANSPORT_FAILED");
+      }
       throw Error(code&&safeWorkerErrors.has(code)?code:"X_LOCAL_READ_FAILED: check local session/runtime; no automatic login, challenge bypass or paid fallback");
     }
     const clean=(s:string)=>[token,csrf].reduce((value,secret)=>value.split(secret).join("[redacted]"),s);
@@ -59,9 +64,9 @@ export function createXLocalSource(options:{collect?:(context:SourceContext)=>Pr
       const original=new URL(item.url||"");
       if(item.type!=="x-post"||!/^\d{1,30}$/.test(item.id)||original.protocol!=="https:"||original.hostname!=="x.com"||original.search||original.hash||!/^\/[A-Za-z0-9_]{1,15}\/status\/\d{1,30}$/.test(original.pathname)||!original.pathname.endsWith("/status/"+item.id))throw Error("X_LOCAL_POST_INVALID");
       const urls=(item.urls||[]).flatMap(value=>{try{const normalized=normalizeUrl(value),host=safeHostname(normalized);return isXUrl(normalized)||host==="t.co"||[token,csrf].some(s=>normalized.includes(s))?[]:[normalized];}catch{return [];}});
-      const media=(item.media||[]).filter(value=>{try{return new URL(value).hostname==="pbs.twimg.com"&&![token,csrf].some(secret=>value.includes(secret));}catch{return false;}});
+      const media=(item.media||[]).filter(value=>{try{return new URL(value).protocol==="https:"&&["pbs.twimg.com","video.twimg.com"].includes(new URL(value).hostname)&&![token,csrf].some(secret=>value.includes(secret));}catch{return false;}});
       return {...item,title:clean(item.title||"X post"),text:clean(item.text||""),urls,media,
-        attributes:{author:clean(String(item.attributes?.author||"")),collector:"twifork",feed:"for-you",liveVerification:"not-attested-by-code",metrics:xMetrics(item.attributes?.metrics)}};
+        attributes:{author:clean(String(item.attributes?.author||"")),collector:"twifork",feed:"for-you",liveVerification:"not-attested-by-code",mediaEvidenceComplete:item.attributes?.mediaEvidenceComplete===true&&media.length===item.attributes?.mediaCount,metrics:xMetrics(item.attributes?.metrics)}};
     });
     if(page.nextCursor&&([token,csrf].some(s=>page.nextCursor!.includes(s))||page.nextCursor.length>4000||/[\u0000-\u001f]/.test(page.nextCursor)))throw Error("X_LOCAL_CURSOR_INVALID");
     const exhausted=!page.hasMore||page.observations.length===0;
