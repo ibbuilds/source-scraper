@@ -140,7 +140,7 @@ class BridgeTests(unittest.TestCase):
         os.environ["SOURCE_SCRAPER_X_LIKES_APPROVED"]="local-likes-only"
         original=Result.__init__
         def unlinked(result):
-            original(result);result[0].urls=[];result[0].media=[types.SimpleNamespace(source_url="https://pbs.twimg.com/media/ui.jpg")]
+            original(result);result[0].urls=[];result[0].media=[types.SimpleNamespace(type="photo",source_url="https://pbs.twimg.com/media/ui.jpg")]
         args={"operation":"like_x_post","postId":"101","target":"post","decisionId":"topic-decision","profileHash":"a"*64,"postTextHash":hashlib.sha256(b"React motion").hexdigest()}
         with patch.object(Result,"__init__",unlinked):
             self.memory_path.write_text(json.dumps(self.post_review_memory()),encoding="utf-8")
@@ -171,6 +171,16 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(Client.timeline_calls[0]["cursor"],"legacy-page")
         self.assertEqual(Client.timeline_calls[1]["cursor"],"after-page")
         self.assertEqual(Client.timeline_calls[1].get("seen_tweet_ids"),["101"])
+    def test_video_requires_a_playable_stream_and_never_certifies_its_poster(self):
+        media=types.SimpleNamespace(type="video",source_url="https://pbs.twimg.com/media/poster.jpg",video_info={"variants":[
+            {"content_type":"application/x-mpegURL","url":"https://video.twimg.com/clip.m3u8"},
+            {"content_type":"video/mp4","bitrate":100,"url":"https://video.twimg.com/low.mp4"},
+            {"content_type":"video/mp4","bitrate":500,"url":"https://video.twimg.com/high.mp4"}]})
+        tweet=types.SimpleNamespace(media=[media]);self.assertEqual(SPACE["media_evidence"](tweet),(["https://video.twimg.com/high.mp4"],True))
+        media.video_info={"variants":[]};self.assertEqual(SPACE["media_evidence"](tweet),([],False))
+    def test_incomplete_quote_retweet_or_article_never_certifies_whole_post(self):
+        for patching in [{"is_quote_status":True},{"retweeted_tweet":object()},{"article":object()}]:
+            self.assertFalse(SPACE["media_evidence"](types.SimpleNamespace(media=[],**patching))[1])
     def test_checkpoint_deduplicates_and_bounds_recent_ids(self):
         old=[str(i) for i in range(200)]
         saved=SPACE["write_checkpoint"]("after-page",old,[{"id":"101"},{"id":"999"}])

@@ -73,6 +73,7 @@ function validateDecision(raw:unknown,detail:ReturnType<typeof relevanceEvidence
   if(e.kind==="page"){let valid=false;try{const url=new URL(e.url);valid=url.protocol==="https:"&&detail.urls.some(base=>new URL(base).hostname===url.hostname)&&bounded(e.quote,20,4000);}catch{}if(!valid)throw Error("RESOURCE_EVIDENCE_NOT_RELATED");}
  }
  if(raw.state==="pertinent"&&(!raw.wholePostReviewed||raw.uncertainties.length||!raw.evidence.length||profile.excludeTerms.some(term=>matches(detail.corpus,term))))throw Error("TOPIC_NOT_ESTABLISHED");
+ if(raw.state==="pertinent"&&detail.adapter==="x-for-you-local"&&detail.observation?.attributes?.mediaEvidenceComplete!==true)throw Error("WHOLE_POST_EVIDENCE_REQUIRED");
  if(raw.state==="pertinent"&&detail.media.some(url=>!raw.evidence.some((e:any)=>e.kind==="visual"&&e.url===url)))throw Error("WHOLE_POST_VISUAL_REVIEW_REQUIRED");
  return structuredClone(raw) as TopicDecision;
 }

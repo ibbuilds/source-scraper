@@ -48,6 +48,31 @@ def write_checkpoint(cursor, seen, observations):
     return cursor  # Never lose a valid long continuation to make room for IDs.
 
 
+def media_evidence(tweet):
+    urls, complete = [], True
+    for media in (getattr(tweet, "media", None) or []):
+        kind = getattr(media, "type", None)
+        url = getattr(media, "source_url", None)
+        if kind in ("video", "animated_gif"):
+            variants = (getattr(media, "video_info", None) or {}).get("variants", [])
+            playable = [v for v in variants if isinstance(v, dict) and v.get("content_type") == "video/mp4"
+                        and isinstance(v.get("url"), str) and urlparse(v["url"]).scheme == "https"
+                        and urlparse(v["url"]).hostname == "video.twimg.com"]
+            url = max(playable, key=lambda v: v.get("bitrate", 0) if type(v.get("bitrate", 0)) is int else 0)["url"] if playable else None
+        elif kind != "photo":
+            complete = False
+        parsed = urlparse(url or "")
+        if parsed.scheme == "https" and parsed.hostname in ("pbs.twimg.com", "video.twimg.com") and not parsed.username and not parsed.password:
+            urls.append(url)
+        else:
+            complete = False
+    # Embedded quotes, reshares and long-form articles need their own complete
+    # context. Never certify them from a flattened text or preview alone.
+    if getattr(tweet, "is_quote_status", False) or getattr(tweet, "retweeted_tweet", None) or getattr(tweet, "article", None):
+        complete = False
+    return urls, complete
+
+
 async def collect(arguments):
     token = os.environ.get("SOURCE_SCRAPER_X_ACCOUNT_SESSION", "")
     csrf = os.environ.get("SOURCE_SCRAPER_X_CSRF", "")
@@ -144,9 +169,9 @@ async def collect(arguments):
                         raise ValueError("X_LOCAL_RESOURCE_REJECTED")
                     from datetime import datetime
                     review = memory.get("postReviews", {}).get(arguments["accountId"] + "|" + post_id, {})
-                    media = [item.source_url for item in (getattr(tweet, "media", None) or []) if getattr(item, "source_url", None)]
+                    media, complete = media_evidence(tweet)
                     likes = getattr(tweet, "favorite_count", None)
-                    if (review.get("id") != arguments.get("decisionId") or review.get("profileHash") != arguments.get("profileHash")
+                    if (not complete or review.get("id") != arguments.get("decisionId") or review.get("profileHash") != arguments.get("profileHash")
                             or review.get("state") != "pertinent" or review.get("wholePostReviewed") is not True
                             or review.get("uncertainties") != [] or review.get("postTextHash") != text_hash
                             or review.get("postUrl") != "https://x.com/" + tweet.user.screen_name + "/status/" + post_id
@@ -169,7 +194,7 @@ async def collect(arguments):
             return {"accountId": arguments["accountId"], "postId": post_id, "favorited": liked, "requested": False,
                     "postUrl": "https://x.com/" + tweet.user.screen_name + "/status/" + post_id,
                     "postTextHash": hashlib.sha256((tweet.full_text or tweet.text or "").encode("utf-8")).hexdigest(),
-                    "media": [item.source_url for item in (getattr(tweet, "media", None) or []) if getattr(item, "source_url", None)],
+                    "media": media_evidence(tweet)[0],
                     "urls": [item.get("expanded_url", "") for item in (tweet.urls or [])
                              if item.get("expanded_url") and token not in item["expanded_url"] and csrf not in item["expanded_url"]]}
         page = await client.get_timeline(count=100, cursor=cursor, seen_tweet_ids=seen)
@@ -177,15 +202,16 @@ async def collect(arguments):
             raise ValueError("X_LOCAL_PAGE_OVERFLOW")
         observations = []
         for tweet in page:
+            media_urls, media_complete = media_evidence(tweet)
             item = {"id": str(tweet.id), "type": "x-post",
                 "title": (tweet.full_text or tweet.text or "X post")[:180],
                 "text": tweet.full_text or tweet.text or "",
                 "url": "https://x.com/" + tweet.user.screen_name + "/status/" + str(tweet.id),
                 "urls": [item.get("expanded_url", "") for item in (tweet.urls or []) if item.get("expanded_url")],
-                "media": [media.source_url for media in (getattr(tweet, "media", None) or []) if getattr(media, "source_url", None)],
+                "media": media_urls,
                 "attributes": {"author": tweet.user.screen_name, "collector": "twifork", "feed": "for-you",
                     "mediaCount": len(getattr(tweet, "media", None) or []),
-                    "mediaEvidenceComplete": all(getattr(media, "source_url", None) and urlparse(media.source_url).hostname in ("pbs.twimg.com", "video.twimg.com") for media in (getattr(tweet, "media", None) or []))}}
+                    "mediaEvidenceComplete": media_complete}}
             # Fixed public counters, without copying the library's raw object.
             metrics = {}
             for name, attribute in (("likes", "favorite_count"), ("reposts", "retweet_count"), ("replies", "reply_count"), ("quotes", "quote_count"), ("views", "view_count")):
