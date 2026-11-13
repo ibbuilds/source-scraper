@@ -3,6 +3,7 @@ import {acquireLock} from "./lock.ts";
 import {compileCollectionFilters} from "../sdk/collection-filters.ts";
 import {validateObservation,validateEntity,validateAssessment} from "./project-config.ts";
 import {KnowledgeStore} from "../storage/knowledge.ts";
+import {drainPendingProcessing} from "./pending-processing.ts";
 import type {Registry,ProjectDefinition,EntityDraft,Observation,Assessment,KnowledgeEntity} from "../sdk/contracts.ts";
 
 export interface SourceRun {
@@ -13,6 +14,7 @@ export interface SourceRun {
 export interface ProjectRun {
   projectId:string;runs:SourceRun[];observations:number;newEntities:number;duplicates:number;
   success:boolean;
+  processing?:{processed:number;pending:number};
 }
 function summarize(error:unknown):string {
   const message=error instanceof Error?error.message:String(error);
@@ -84,8 +86,17 @@ export async function runProject(dbPath:string,project:ProjectDefinition,registr
     const prior=store.db.prepare("SELECT config_hash FROM kb_projects WHERE id=?").get(project.id) as {config_hash:string}|undefined;
     const unchangedProject=prior?.config_hash===createHash("sha256").update(JSON.stringify(project)).digest("hex");
     store.saveProject(project);
-    for(const source of project.sources){
-      if(!selectedSources.includes(source.id))continue;
+    if(project.pipeline.includes("public-metadata"))result.processing=await drainPendingProcessing(store,project,registry,signal,selectedSources);
+    const sources=project.sources.filter(source=>selectedSources.includes(source.id));
+    if(opts.xCycle&&opts.cycleId){
+      const pages=store.db.prepare("SELECT connection_id,COALESCE(SUM(pages),0) pages FROM kb_runs WHERE project_id=? AND cycle_id=? GROUP BY connection_id").all(project.id,opts.cycleId) as {connection_id:string;pages:number}[];
+      const committed=new Map(pages.map(row=>[row.connection_id,Number(row.pages)]));
+      sources.sort((a,b)=>(committed.get(a.id)??0)-(committed.get(b.id)??0));
+    }
+    for(const [sourceIndex,source] of sources.entries()){
+      const remaining=maxPages-result.runs.reduce((n,run)=>n+(run.pages??0),0);
+      if(opts.xCycle&&remaining<=0)break;
+      const sourcePageBudget=opts.xCycle?Math.max(1,Math.ceil(remaining/(sources.length-sourceIndex))):maxPages;
       let runId="";
       const stats:SourceRun={sourceId:source.id,runId:"",status:"success",
         observations:0,newEntities:0,duplicates:0};
@@ -96,7 +107,7 @@ export async function runProject(dbPath:string,project:ProjectDefinition,registr
         let cursor=store.cursor(project.id,source.id);
         const seenCursors=new Set<string>();
         let finished=false,stalePages=0;
-        for(let pageNo=0;pageNo<maxPages;pageNo++){
+        for(let pageNo=0;pageNo<sourcePageBudget;pageNo++){
           if(signal.aborted)throw new Error("Processing aborted");
           if(cursor!==undefined){
             if(seenCursors.has(cursor))throw new Error("Connector repeated a cursor");
@@ -104,7 +115,7 @@ export async function runProject(dbPath:string,project:ProjectDefinition,registr
           }
           const page=await registry.sources.get(source.adapter)!.collect({
             source,cursor,limit:pageSize,signal,
-            ...(opts.xCycle&&source.adapter==="x-for-you-local"?{pageBudget:maxPages}:{})
+            ...(opts.xCycle&&source.adapter==="x-for-you-local"?{pageBudget:sourcePageBudget}:{})
           });
           if(!page||!Array.isArray(page.observations)||page.observations.length>pageSize){
             throw new Error("Adapter returned invalid page size");
@@ -125,7 +136,8 @@ export async function runProject(dbPath:string,project:ProjectDefinition,registr
             const tasks=page.observations.slice(offset,offset+width).map(async raw=>{
               const observation=validateObservation(raw);
               const retained=reuse?store!.retainedDrafts(project.id,source.id,observation):undefined;
-              const entities=retained===undefined?await processItem(project,source,observation,registry,signal):await Promise.all(retained.filter(d=>d.type!=="x-inspiration").map(async rawDraft=>{
+              const reused=retained&&project.pipeline.includes("public-metadata")?await registry.processors.get("public-metadata")!.run({project,source,signal},observation,retained):retained;
+              const entities=reused===undefined?await processItem(project,source,observation,registry,signal):await Promise.all(reused.filter(d=>d.type!=="x-inspiration").map(async rawDraft=>{
                 const draft=validateEntity(rawDraft,project.entitySchemas);
                 return {draft,assessment:validateAssessment(await registry.evaluators.get(project.evaluator)!.assess({project,source,signal},structuredClone(observation),structuredClone(draft)))};
               }));
@@ -175,6 +187,12 @@ export async function runProject(dbPath:string,project:ProjectDefinition,registr
   }finally{
     try{store?.close();}finally{release();}
   }
+}
+/** Continue retained enrichment without collecting or forwarding X credentials. */
+export async function processPendingProject(dbPath:string,project:ProjectDefinition,registry:Registry,signal:AbortSignal=new AbortController().signal){
+ assertRegistered(project,registry);const release=acquireLock(dbPath+".lock");let store:KnowledgeStore|undefined;
+ try{store=new KnowledgeStore(dbPath);store.saveProject(project);return await drainPendingProcessing(store,project,registry,signal,compileCollectionFilters(project.sources.map(s=>s.id),project.filters).sourceIds);}
+ finally{try{store?.close();}finally{release();}}
 }
 /** Re-evaluate already persisted observations when criteria change: zero connector requests. */
 export async function reprocessProject(dbPath:string,project:ProjectDefinition,registry:Registry,

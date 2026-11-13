@@ -128,6 +128,37 @@ class BridgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"LIKE_DISABLED"):
             self.collect(operation="like_x_post",postId="101",postTextHash=hashlib.sha256(b"React motion").hexdigest(),directUrl="https://example.org/tool")
         self.assertFalse(any("FavoriteTweet" in e[1] for e in EVENTS))
+    def post_review_memory(self, **changes):
+        from datetime import datetime, timezone, timedelta
+        review={"id":"topic-decision", "profileHash":"a"*64,"state":"pertinent","wholePostReviewed":True,"uncertainties":[],
+                "postTextHash":hashlib.sha256(b"React motion").hexdigest(),"postUrl":"https://x.com/example/status/101",
+                "urls":[],"media":["https://pbs.twimg.com/media/ui.jpg"],"minimumLikes":10,
+                "expiresAt":(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(),**changes}
+        return {"version":1,"feedbackEnabled":True,"aliases":{},"rejections":[],"postReviews":{"1234567890|101":review},
+                "actions":[{"target":"post","decisionId":"topic-decision","accountId":"1234567890","postId":"101","state":"in-progress"}]}
+    def test_unlinked_visual_post_like_requires_current_complete_decision_and_journal(self):
+        os.environ["SOURCE_SCRAPER_X_LIKES_APPROVED"]="local-likes-only"
+        original=Result.__init__
+        def unlinked(result):
+            original(result);result[0].urls=[];result[0].media=[types.SimpleNamespace(source_url="https://pbs.twimg.com/media/ui.jpg")]
+        args={"operation":"like_x_post","postId":"101","target":"post","decisionId":"topic-decision","profileHash":"a"*64,"postTextHash":hashlib.sha256(b"React motion").hexdigest()}
+        with patch.object(Result,"__init__",unlinked):
+            self.memory_path.write_text(json.dumps(self.post_review_memory()),encoding="utf-8")
+            self.assertTrue(self.collect(**args)["requested"])
+            self.assertEqual(sum("FavoriteTweet" in e[1] for e in EVENTS),1)
+            for changes in [{"state":"uncertain"},{"wholePostReviewed":False},{"uncertainties":["video not reviewed"]},
+                            {"media":[]},{"urls":["https://different.example"]},{"profileHash":"b"*64},
+                            {"expiresAt":"2020-01-01T00:00:00Z"},{"minimumLikes":121}]:
+                EVENTS.clear();self.memory_path.write_text(json.dumps(self.post_review_memory(**changes)),encoding="utf-8")
+                with self.subTest(changes=changes):
+                    with self.assertRaisesRegex(ValueError,"POST_REVIEW_REQUIRED"):self.collect(**args)
+                    self.assertFalse(any("FavoriteTweet" in e[1] for e in EVENTS))
+            for field,value in [("actions",[]),("feedbackEnabled",False),("rejections",[{"scope":"user","active":True,"resource":"https://x.com/example/status/101"}])]:
+                EVENTS.clear();memory=self.post_review_memory();memory[field]=value
+                Client.on_inspect=lambda:self.memory_path.write_text(json.dumps(memory),encoding="utf-8")
+                with self.subTest(field=field):
+                    with self.assertRaises(ValueError):self.collect(**args)
+                    self.assertFalse(any("FavoriteTweet" in e[1] for e in EVENTS))
     def test_confirmed_remote_like_does_not_send_again(self):
         os.environ["SOURCE_SCRAPER_X_LIKES_APPROVED"]="local-likes-only";Client.favorited=True
         result=self.collect(operation="like_x_post",postId="101",postTextHash=hashlib.sha256(b"React motion").hexdigest(),directUrl="https://example.org/tool")

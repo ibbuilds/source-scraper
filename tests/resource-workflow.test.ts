@@ -12,6 +12,13 @@ test("canonical aliases and user rejections precede pagination, and can be expli
  add("one","http://example.org/tool?utm_source=x");add("two","https://example.org/tool");add("three","https://short.example/tool");add("other");
  const context={aliases:{"https://short.example/tool":"https://example.org/tool"},rejected:["https://example.org/tool"]};assert.equal(query(s,{context}).total,1);assert.equal(query(s,{context,review:"rejected"}).total,1);assert.equal(query(s,{context:{...context,rejected:[]}}).total,2);
 }));
+test("current AI discards leave ordinary results but preserve an explicit human Keep",()=>fixture((s,add)=>{
+ add("a");add("b");const context={assessments:{"https://example.org/a":{decision:"discarded",at:"2099-01-01",utility:"Not relevant to this profile"}}};
+ assert.equal(query(s,{context}).total,1);assert.equal(query(s,{context,evaluation:"discarded"}).total,1);
+ s.reviewEntity(project.id,"a","approved","An explicit user choice");assert.equal(query(s,{context}).total,2);
+ assert.equal(s.getEntity(project.id,"a")!.review,"approved");
+}));
+
 test("one transaction records a whole selection; replay never duplicates history",()=>fixture((s,add)=>{
  for(let i=0;i<500;i++)add("r"+i);const p=query(s),request={selectionId:p.selectionId,decision:"approved",requestId:"fixture-review-001"};const receipt=reviewResources(s,project.id,request);assert.equal(receipt.saved,500);assert.equal(receipt.failed,0);const before=Number((s.db.prepare("SELECT count(*) n FROM kb_reviews").get() as any).n);assert.equal(reviewResources(s,project.id,request).replayed,true);assert.equal(Number((s.db.prepare("SELECT count(*) n FROM kb_reviews").get() as any).n),before);assert.throws(()=>reviewResources(s,project.id,{...request,decision:"rejected"}),/CONFLICT/);
 }));

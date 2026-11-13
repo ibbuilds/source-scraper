@@ -15,8 +15,9 @@ import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {createDefaultRegistry} from "../../packages/core/extensions.ts";
 import {loadProject} from "../../packages/core/project-config.ts";
-import {runProject,reprocessProject} from "../../packages/core/engine.ts";
+import {runProject,reprocessProject,processPendingProject} from "../../packages/core/engine.ts";
 import {KnowledgeStore} from "../../packages/storage/knowledge.ts";
+import {queryRelevance,recordRelevance,resourceRelevanceContext} from "../../packages/core/relevance.ts";
 import {demoObservations} from "../../packages/core/demo.ts";
 import {xLocalConfig} from "../../packages/adapters/x-local.ts";
 import type {KnowledgeEntity,ProjectDefinition} from "../../packages/sdk/contracts.ts";
@@ -36,6 +37,7 @@ const HELP=[
   "  source-scraper inspect --config project.json --key ENTITY_KEY",
   "  source-scraper review --config project.json --key KEY --decision approved --reason TEXT",
   "  source-scraper reprocess --config project.json     Reevaluate retained data offline",
+  "  source-scraper process-pending --config FILE      Continue queued public enrichment",
   "  source-scraper export --config project.json [--dataset entities|observations|changes|alerts]",
   "      [--format json|ndjson] [--out FILE] [--limit N] [--offset N]",
   "  source-scraper adapters                         List installed SDK adapters",
@@ -55,8 +57,10 @@ const COMMAND_FLAGS:Record<string,string[]>={
   "assessment-record":["config","db","id","key","record-json"],
   "assessment-list":["config","db","id","key","limit","offset"],
   "resource-batch":["config","db","id"],
+  "process-pending":["config","db"],
+  "topic-batch":["config","db"],
   "cycle-progress":["config","db","id","cycle-id"],
-  "x-feedback":["config","post-id","operation","post-text-hash","direct-url","resource-memory","resource-url"],
+  "x-feedback":["config","source-id","post-id","operation","post-text-hash","direct-url","resource-memory","resource-url","target","decision-id","profile-hash"],
   init:["dir"],validate:["config","extension"],run:["config","db","extension","page-size","max-pages","source-ids-json","x-cycle","cycle-id"],
   projects:["db","config"],query:["db","config","id","dataset","limit","offset","search","type","min-score","filters-json"],
   inspect:["db","config","id","key"],review:["db","config","id","key","decision","reason"],
@@ -172,7 +176,7 @@ async function streamExport(store:KnowledgeStore,id:string,dataset:DataSet,flags
   const path=flags.get("out")?resolve(required(flags,"out")):undefined;
   const handle=path?await openFile(path,"wx",0o600):undefined;
   let completed=false,records=0,remaining=limit,current=offset;
-  const filtered=dataset==="entities"?createFilteredQuery(store,id,filter,{limit,offset}):undefined;
+  const filtered=dataset==="entities"?createFilteredQuery(store,id,filter,{limit,offset,minScore:integer(flags,"min-score",0,0,100)}):undefined;
   let readTransaction=false;
   const write=async(content:string):Promise<void>=>{
     if(handle)await handle.writeFile(content);
@@ -237,7 +241,7 @@ function init(dir:string):void{
     observationsFile:input,databasePath:join(root,".source-scraper.sqlite"),synthetic:true});
 }
 async function execute(command:string,flags:Flags):Promise<void>{
-  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1","collection-filters-v1","candidate-thresholds-v1","x-cycle-v1","x-likes-v1","resource-batch-v1","resource-quality-v1","resource-admission-v1","public-resource-evidence-v1","x-post-resource-urls-v1"]});return;}
+  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1","collection-filters-v1","candidate-thresholds-v1","x-cycle-v1","x-likes-v1","resource-batch-v1","resource-quality-v1","resource-admission-v1","public-resource-evidence-v1","x-post-resource-urls-v1","topic-relevance-v1","pending-processing-v1","post-feedback-v1"]});return;}
   if(command==="resource-evidence"){output(await collectResourceEvidence(required(flags,"url")));return;}
   if(command==="init"){init(flags.get("dir")||"./source-scraper-project");return;}
   if(command==="adapters"){
@@ -249,13 +253,14 @@ async function execute(command:string,flags:Flags):Promise<void>{
   }
   if(command==="x-feedback"){
     const {project}=projectContext(flags,true);
-    const sources=project!.sources.filter(s=>s.adapter==="x-for-you-local");
+    const sources=project!.sources.filter(s=>s.adapter==="x-for-you-local"&&(!flags.has("source-id")||s.id===flags.get("source-id")));
     if(sources.length!==1)throw Error("X_LOCAL_ACCOUNT_REQUIRED");
     const {accountId}=xLocalConfig(sources[0].config),operation=required(flags,"operation");
     if(operation!=="inspect_x_like"&&operation!=="like_x_post")throw Error("X_LOCAL_OPERATION_DENIED");
-    output(await xFeedback(accountId,required(flags,"post-id"),operation,new AbortController().signal,operation==="like_x_post"?{postTextHash:required(flags,"post-text-hash"),directUrl:required(flags,"direct-url"),resourceMemory:required(flags,"resource-memory"),resourceUrl:required(flags,"resource-url")}:undefined));return;
+    if(flags.has("target")&&flags.get("target")!=="post")throw Error("INVALID_FEEDBACK_TARGET");
+    output(await xFeedback(accountId,required(flags,"post-id"),operation,new AbortController().signal,operation==="like_x_post"?{postTextHash:required(flags,"post-text-hash"),resourceMemory:required(flags,"resource-memory"),...(flags.get("target")==="post"?{target:"post" as const,decisionId:required(flags,"decision-id"),profileHash:required(flags,"profile-hash")}:{directUrl:required(flags,"direct-url"),resourceUrl:required(flags,"resource-url")})}:undefined));return;
   }
-  if(command==="validate"||command==="run"||command==="reprocess"){
+  if(command==="validate"||command==="run"||command==="reprocess"||command==="process-pending"){
     const {id,db,project}=projectContext(flags,true);
     if(!project)throw new Error("Missing project");
     // Validation must be side-effect-free and never load executable third-party extensions.
@@ -271,6 +276,10 @@ async function execute(command:string,flags:Flags):Promise<void>{
       return;
     }
     const registry=createDefaultRegistry(flags.get("extension")?[resolve(required(flags,"extension"))]:[]);
+    if(command==="process-pending"){
+      if(!existsSync(db))throw Error("Collect the project before continuing processing");
+      output({schemaVersion:DATA_VERSION,command,id,result:await processPendingProject(db,project,registry)});return;
+    }
     if(command==="run"){
       const result=await runProject(db,project,registry,{
         cycleId:flags.get("cycle-id"),
@@ -303,17 +312,27 @@ async function execute(command:string,flags:Flags):Promise<void>{
     return;
   }
   const {id,db,project}=projectContext(flags,false);
+  // Request thresholds can narrow, never widen the saved project threshold.
+  const minimumScore=Math.max(project?.policy.minimumScore??0,integer(flags,"min-score",0,0,100));
+  flags.set("min-score",String(minimumScore));
   const store=openExisting(db);
   try{
     if(!store.listProjects().some(row=>row.id===id)){
       throw new Error("Project not found in database: "+id);
     }
-    if(command==="resource-batch"){
+    if(command==="topic-batch"){
+      if(!project)throw Error("A registered project manifest is required");
+      let size=0;const chunks:Buffer[]=[];for await(const chunk of process.stdin){size+=chunk.length;if(size>8_000_000)throw Error("REQUEST_LIMIT");chunks.push(Buffer.from(chunk));}
+      const input=JSON.parse(Buffer.concat(chunks).toString("utf8"));if(!input||typeof input!=="object")throw Error("INVALID_TOPIC_REQUEST");
+      if(input.operation==="query")output(queryRelevance(store,project,input));else if(input.operation==="decide")output(recordRelevance(store,project,input));else throw Error("INVALID_TOPIC_OPERATION");
+    }else if(command==="resource-batch"){
       let bytes=0;const chunks:Buffer[]=[];for await(const chunk of process.stdin){bytes+=chunk.length;if(bytes>8_000_000)throw Error("REQUEST_LIMIT");chunks.push(Buffer.from(chunk));}
       const input=JSON.parse(Buffer.concat(chunks).toString("utf8"));if(!input||typeof input!=="object")throw Error("INVALID_RESOURCE_REQUEST");
       if(input.operation==="query"){
         const filter=compileCollectionFilters(project?.sources.map(s=>s.id)??store.sourceIds(id),project?.filters,input.filters,Date.now(),input.candidateFilters);
-        output(queryResources(store,id,input,()=>createFilteredQuery(store,id,filter,{limit:Number.MAX_SAFE_INTEGER,offset:0,minScore:input.minScore,type:input.type}).records));
+        if(input.minScore!==undefined&&(!Number.isInteger(input.minScore)||input.minScore<0||input.minScore>100))throw Error("INVALID_MINIMUM_SCORE");
+        const request=input.topicProfile&&project?{...input,context:{...input.context,...resourceRelevanceContext(store,project,input.topicProfile)}}:input;
+        output(queryResources(store,id,request,()=>createFilteredQuery(store,id,filter,{limit:Number.MAX_SAFE_INTEGER,offset:0,minScore:Math.max(minimumScore,input.minScore??0),type:input.type}).records));
       }else if(input.operation==="inspect"){
         const filter=compileCollectionFilters(project?.sources.map(s=>s.id)??store.sourceIds(id),project?.filters,input.filters,Date.now(),input.candidateFilters);
         output(inspectResources(store,id,input.keys,e=>filter.match(e,()=>store.filterObservations(id,e.key)).matched));

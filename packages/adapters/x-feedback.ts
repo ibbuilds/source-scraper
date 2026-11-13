@@ -3,13 +3,13 @@ import {isAbsolute} from "node:path";
 import {existsSync} from "node:fs";
 import {workerPath} from "./x-local.ts";
 /** Fixed first-party operations; cookies are passed only into the existing isolated worker. */
-export async function xFeedback(accountId:string,postId:string,operation:"inspect_x_like"|"like_x_post",signal:AbortSignal,expected?:{postTextHash:string;directUrl:string;resourceMemory:string;resourceUrl:string}):Promise<{accountId:string;postId:string;favorited?:boolean;requested?:boolean}>{
+export async function xFeedback(accountId:string,postId:string,operation:"inspect_x_like"|"like_x_post",signal:AbortSignal,expected?:{postTextHash:string;directUrl?:string;resourceMemory:string;resourceUrl?:string;target?:"post";decisionId?:string;profileHash?:string}):Promise<{accountId:string;postId:string;favorited?:boolean;requested?:boolean}>{
   if(process.env.SOURCE_SCRAPER_X_LIKES_APPROVED!=="local-likes-only")throw Error("X_LOCAL_LIKES_APPROVAL_REQUIRED");
   if(!/^\d{1,30}$/.test(accountId)||!/^\d{1,30}$/.test(postId))throw Error("X_LOCAL_POST_INVALID");
   const python=process.env.SOURCE_SCRAPER_X_PYTHON;
   if(!python||!isAbsolute(python)||!existsSync(python))throw Error("X_LOCAL_PYTHON_REQUIRED");
   if(!process.env.SOURCE_SCRAPER_X_ACCOUNT_SESSION||!process.env.SOURCE_SCRAPER_X_CSRF)throw Error("X_LOCAL_SESSION_REQUIRED");
-  if(operation==="like_x_post"&&(!expected||!/^[a-f0-9]{64}$/.test(expected.postTextHash)||!/^https?:\/\//.test(expected.directUrl)||!isAbsolute(expected.resourceMemory)||!/^https:\/\//.test(expected.resourceUrl)))throw Error("X_LOCAL_POST_SNAPSHOT_REQUIRED");
+  if(operation==="like_x_post"&&(!expected||!/^[a-f0-9]{64}$/.test(expected.postTextHash)||!isAbsolute(expected.resourceMemory)||(expected.target==="post"?(!expected.decisionId||expected.decisionId.length>100||!/^[a-f0-9]{64}$/.test(expected.profileHash??"")):(!/^https?:\/\//.test(expected.directUrl??"")||!/^https:\/\//.test(expected.resourceUrl??"")))))throw Error("X_LOCAL_POST_SNAPSHOT_REQUIRED");
   signal.throwIfAborted();
   const env:NodeJS.ProcessEnv={};for(const k of ["SYSTEMROOT","WINDIR","TEMP","TMP","LOCALAPPDATA","USERPROFILE","SOURCE_SCRAPER_X_ACCOUNT_SESSION","SOURCE_SCRAPER_X_CSRF","SOURCE_SCRAPER_X_LIKES_APPROVED"])if(process.env[k])env[k]=process.env[k];
   return new Promise((resolve,reject)=>{

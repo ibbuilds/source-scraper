@@ -1,6 +1,6 @@
 {
   "name": "source-scraper",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "private": true,
   "type": "module",
   "description": "JSON-first, source-independent data collection, curation and change tracking",
@@ -40,6 +40,8 @@
   "files": [
     "dist/source-scraper.mjs",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "scripts/calibrate-topic.mjs",
+    "docs/topic-relevance.md"
   ]
 }
