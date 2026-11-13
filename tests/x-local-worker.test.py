@@ -240,6 +240,14 @@ class BridgeTests(unittest.TestCase):
         Client.operation="FavoriteTweet"
         with self.assertRaisesRegex(ValueError,"OPERATION_DENIED"): self.collect()
         self.assertFalse(any(url.endswith("/FavoriteTweet") for _,url,_ in EVENTS))
+    def test_rate_limit_delay_is_bounded_and_uses_the_larger_server_deadline(self):
+        factory = SPACE["RateLimited"]
+        with patch("time.time", return_value=1000):
+            failure = factory(types.SimpleNamespace(headers={"retry-after":"900", "x-rate-limit-reset":"2600"}))
+            self.assertEqual(failure.retry_after_seconds, 1601)
+            self.assertEqual(str(failure), "X_LOCAL_HTTP_429")
+            for headers in ({}, {"retry-after":"secret"}, {"retry-after":"-1"}, {"retry-after":"9999999999"}):
+                self.assertIsNone(factory(types.SimpleNamespace(headers=headers)).retry_after_seconds)
     def test_rate_limit_stops_without_retry(self):
         Client.status=429
         with self.assertRaisesRegex(ValueError,"HTTP_429"): self.collect()

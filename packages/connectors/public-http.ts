@@ -6,8 +6,8 @@ import {isLocalOrUnsafeAddress, normalizeUrl, safeHostname, isXUrl} from "../cor
 
 /** DNS-pinned, redirect-revalidated public text retrieval. No sessions or X scraping. */
 export async function fetchPublicText(input:string, options:{
-  accept:string;types:readonly string[];maxBytes?:number;redirects?:number;signal?:AbortSignal
-}):Promise<{url:string;body:string;contentType:string}> {
+  accept:string;types:readonly string[];maxBytes?:number;redirects?:number;signal?:AbortSignal;htmlHeadOnly?:boolean
+}):Promise<{url:string;body:string;contentType:string;truncated?:boolean}> {
   const signal=options.signal;
   signal?.throwIfAborted();
   const resolvePublicHost=async(host:string)=>{
@@ -21,7 +21,7 @@ export async function fetchPublicText(input:string, options:{
     });
   };
   const maxBytes=Math.min(1_000_000,Math.max(1024,options.maxBytes??300_000));
-  async function step(inputUrl:string,remaining:number,requireHttps=false):Promise<{url:string;body:string;contentType:string}> {
+  async function step(inputUrl:string,remaining:number,requireHttps=false):Promise<{url:string;body:string;contentType:string;truncated?:boolean}> {
     signal?.throwIfAborted();
     if(remaining<0) throw new Error("Too many redirects");
     const canonical=normalizeUrl(inputUrl);
@@ -74,6 +74,14 @@ export async function fetchPublicText(input:string, options:{
         let length=0;
         const parts:Buffer[]=[];
         res.on("data",(part:Buffer)=>{
+          if(settled)return;
+          if(options.htmlHeadOnly&&type==="text/html"){
+            const prefix=Buffer.concat([...parts,part.subarray(0,Math.max(0,maxBytes-length))]).toString("utf8"),head=/<\/head\s*>/i.exec(prefix);
+            if(head){settled=true;resolve({url:canonical,body:prefix.slice(0,head.index+head[0].length),contentType:type});res.destroy();req.destroy();return;}
+            // Metadata may be near the start of an unusually large head.
+            // Return only the bounded prefix, explicitly marked incomplete.
+            if(length+part.length>maxBytes){settled=true;resolve({url:canonical,body:prefix,contentType:type,truncated:true});res.destroy();req.destroy();return;}
+          }
           length+=part.length;
           if(length>maxBytes){req.destroy();fail(new Error("Response too large"));return;}
           parts.push(part);

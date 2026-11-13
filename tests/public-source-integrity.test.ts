@@ -208,3 +208,16 @@ test("a cancelled DNS wait rejects promptly and a late public answer cannot star
   answer([{address:"93.184.216.34",family:4}]);await new Promise<void>(resolve=>setImmediate(resolve));
   assert.equal(requests,0);
 });
+
+
+test("metadata head retrieval accepts a large body without downloading it and preserves the strict byte limit",async t=>{
+ const head='<html><head><title>UI component source</title><meta name="description" content="Reusable UI source"></head>';
+ mockPublicHttp(t,{'https://ui.example/':{type:'text/html',body:head+'<body>'+('x'.repeat(150000))}});
+ const reply=await fetchPublicText('https://ui.example/',{accept:'text/html',types:['text/html'],maxBytes:120000,htmlHeadOnly:true});
+ assert.equal(reply.body,head);assert.ok(reply.body.length<120000);
+ await assert.rejects(fetchPublicText('https://ui.example/',{accept:'text/html',types:['text/html'],maxBytes:120000}),/Response too large/);
+});
+test("metadata prefix explicitly reports truncation and never returns content beyond its budget",async t=>{
+ mockPublicHttp(t,{'https://ui.example/':{type:'text/html',body:'<head>'+('x'.repeat(130000))+'</head>'}});
+ const reply=await fetchPublicText('https://ui.example/',{accept:'text/html',types:['text/html'],maxBytes:120000,htmlHeadOnly:true});assert.equal(reply.truncated,true);assert.equal(Buffer.byteLength(reply.body),120000);assert.ok(!reply.body.includes('</head>'));
+});

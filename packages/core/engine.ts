@@ -8,13 +8,13 @@ import type {Registry,ProjectDefinition,EntityDraft,Observation,Assessment,Knowl
 
 export interface SourceRun {
   sourceId:string;runId:string;status:"success"|"partial"|"failed";
-  observations:number;newEntities:number;duplicates:number;error?:string;
+  observations:number;newEntities:number;duplicates:number;error?:string;retryAfterSeconds?:number;
   pages?:number;newObservations?:number;endReason?:"end-of-window"|"work-limit"|"no-new-items"|"error";
 }
 export interface ProjectRun {
   projectId:string;runs:SourceRun[];observations:number;newEntities:number;duplicates:number;
   success:boolean;
-  processing?:{processed:number;pending:number};
+  processing?:import("./pending-processing.ts").ProcessingProgress;
 }
 function summarize(error:unknown):string {
   const message=error instanceof Error?error.message:String(error);
@@ -175,6 +175,7 @@ export async function runProject(dbPath:string,project:ProjectDefinition,registr
         stats.endReason="error";
         stats.status="failed";
         stats.error=summarize(error);
+        const delay=(error as {retryAfterSeconds?:number})?.retryAfterSeconds;if(stats.error==="X_LOCAL_HTTP_429"&&Number.isSafeInteger(delay)&&Number(delay)>0&&Number(delay)<=604801)stats.retryAfterSeconds=delay;
         result.success=false;
         if(runId)store.finishRun(runId,"failed",stats,stats.error);
       }
@@ -189,9 +190,9 @@ export async function runProject(dbPath:string,project:ProjectDefinition,registr
   }
 }
 /** Continue retained enrichment without collecting or forwarding X credentials. */
-export async function processPendingProject(dbPath:string,project:ProjectDefinition,registry:Registry,signal:AbortSignal=new AbortController().signal){
+export async function processPendingProject(dbPath:string,project:ProjectDefinition,registry:Registry,signal:AbortSignal=new AbortController().signal,retryFailed=false){
  assertRegistered(project,registry);const release=acquireLock(dbPath+".lock");let store:KnowledgeStore|undefined;
- try{store=new KnowledgeStore(dbPath);store.saveProject(project);return await drainPendingProcessing(store,project,registry,signal,compileCollectionFilters(project.sources.map(s=>s.id),project.filters).sourceIds);}
+ try{store=new KnowledgeStore(dbPath);store.saveProject(project);return await drainPendingProcessing(store,project,registry,signal,compileCollectionFilters(project.sources.map(s=>s.id),project.filters).sourceIds,retryFailed);}
  finally{try{store?.close();}finally{release();}}
 }
 /** Re-evaluate already persisted observations when criteria change: zero connector requests. */

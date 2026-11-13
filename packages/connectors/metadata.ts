@@ -61,10 +61,11 @@ export async function fetchPublicMetadata(raw:string,signal?:AbortSignal):Promis
       // GitHub's unauthenticated API may rate limit; fall back to public HTML.
     }
   }
-  const result=await fetchPublicText(raw,{accept:"text/html",types:["text/html"],maxBytes:120_000,signal});
+  const result=await fetchPublicText(raw,{accept:"text/html",types:["text/html"],maxBytes:120_000,htmlHeadOnly:true,signal});
   const title=meta(result.body,["og:title","twitter:title"])||
     decode(result.body.match(/<title[^>]*>([^<]{1,300})<\/title>/i)?.[1]||"");
   const description=meta(result.body,["description","og:description","twitter:description"]);
+  if(!title&&!description)throw Error("Public page metadata unavailable in bounded prefix");
   return {url:result.url,metadata:{
     title:title||undefined,description,contentType:result.contentType,access:"unknown"
   }};

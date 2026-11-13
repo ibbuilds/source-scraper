@@ -134,7 +134,9 @@ class StdioPeer {
       if(response.error){
         const error=record(response.error),message=error.message;
         const safe=typeof message==="string"&&this.safeErrorCodes.has(message)?": "+message:"";
-        handler.reject(new Error("MCP request failed: "+String(error.code??"protocol error")+safe));
+        const failure=new Error("MCP request failed: "+String(error.code??"protocol error")+safe),delay=error.data&&typeof error.data==="object"&&!Array.isArray(error.data)?(error.data as ObjectValue).retryAfterSeconds:undefined;
+        if(message==="X_LOCAL_HTTP_429"&&this.safeErrorCodes.has(message)&&Number.isSafeInteger(delay)&&Number(delay)>0&&Number(delay)<=604801)Object.assign(failure,{retryAfterSeconds:delay});
+        handler.reject(failure);
       }else handler.resolve(response.result);
     }
   }

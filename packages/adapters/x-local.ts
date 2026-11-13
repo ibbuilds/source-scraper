@@ -57,7 +57,9 @@ export function createXLocalSource(options:{collect?:(context:SourceContext)=>Pr
         if(/process could not start/i.test(error.message))throw Error("X_LOCAL_RUNTIME_UNAVAILABLE");
         if(/server ended|transport failed/i.test(error.message))throw Error("X_LOCAL_TRANSPORT_FAILED");
       }
-      throw Error(code&&safeWorkerErrors.has(code)?code:"X_LOCAL_READ_FAILED: check local session/runtime; no automatic login, challenge bypass or paid fallback");
+      const failure=Error(code&&safeWorkerErrors.has(code)?code:"X_LOCAL_READ_FAILED: check local session/runtime; no automatic login, challenge bypass or paid fallback"),delay=(error as {retryAfterSeconds?:number})?.retryAfterSeconds;
+      if(code==="X_LOCAL_HTTP_429"&&Number.isSafeInteger(delay)&&Number(delay)>0&&Number(delay)<=604801)Object.assign(failure,{retryAfterSeconds:delay});
+      throw failure;
     }
     const clean=(s:string)=>[token,csrf].reduce((value,secret)=>value.split(secret).join("[redacted]"),s);
     const observations=page.observations.map(item=>{
