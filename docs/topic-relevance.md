@@ -50,3 +50,11 @@ observations and 20 public metadata fetches without reading the source again.
 Retry deadlines survive process restarts. Source observation times and cursors
 are unchanged by enrichment. Saved minimum scores remain a floor for every
 ordinary entity query, export and resource query.
+
+Metadata continuations retire legacy non-applicable X entries instead of letting
+them monopolize the queue. Missing retained raw evidence is reported as blocked.
+Failures stop after eight public fetch attempts; `--retry-failed true` is an explicit
+bounded recovery operation. The v2 progress report includes attempted/completed URLs,
+unavailable and blocked counts, oldest queued evidence and last successful processing.
+A bounded HTML head/prefix can supply metadata without downloading a large body;
+it is not a whole-page quality review.

@@ -127,3 +127,7 @@ consumer, never inferred from post instructions. The stored selection fixes the
 set of target identities; later arrivals are not included. Changed resources are
 reported rather than overwritten. The latest 16 selections per project remain
 available. A changed context or expired selection requires a new query.
+
+`topic-batch` and `process-pending` expose independent topic decisions and durable
+enrichment. See [topic evidence and calibration](topic-relevance.md) for their
+bounded stdin contracts, evidence requirements and held-out evaluation procedure.

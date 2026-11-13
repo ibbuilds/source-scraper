@@ -98,6 +98,6 @@ Preserve old plugin assets, source trees, Git history, enabled IDs and settings 
 
 ## Remaining limits and acceptance meaning
 
-Personalized X For You still lacks an authorized verified provider and is independent of generic delivery. The current remote source allowlist intentionally excludes executable/custom adapters. Existing JSON import is independent of the extended MCP host. Real semantic comparison requires a user-selected sample and actual ChatGPT evaluation; simulated tests are labeled as such. Existing client tool inventories can require reconnect/re-discovery.
+The original missing-X-provider finding is superseded by the free local Twifork adapter and recorded bounded live reads; future access remains session- and X-dependent. The current remote source allowlist intentionally excludes executable/custom adapters. Existing JSON import is independent of the extended MCP host. Real semantic comparison requires a user-selected sample and actual ChatGPT evaluation; simulated tests are labeled as such. Existing client tool inventories can require reconnect/re-discovery.
 
 Completion means verified collection/evidence/assessment/staging/draft consumption through the existing MCP endpoint and running review UI, with recovery and zero project-owned vault-note mutations. Later writes remain exclusively a user-directed ChatGPT/Obsidian-connector action.

@@ -92,3 +92,11 @@ test("runtime cycles override one-page manifests, resume commits and reset EOF f
     const store=new KnowledgeStore(db);try{assert.equal(store.listEntities(project.id).length,3);}finally{store.close();}
   }finally{rmSync(root,{recursive:true,force:true});}
 }));
+
+
+test("only validated 429 read delays cross the adapter boundary, never arbitrary error fields",async()=>environment(async()=>{
+ for(const [message,delay,expected] of [['X_LOCAL_HTTP_429',1600,1600],['X_LOCAL_HTTP_429',-1,undefined],['X_LOCAL_HTTP_429','900',undefined],['X_LOCAL_HTTP_401',900,undefined]] as const){
+  const adapter=createXLocalSource({workerPath:()=>"worker.py",collect:async()=>{throw Object.assign(Error(message),{retryAfterSeconds:delay,secret:'synthetic-account-session'});}});
+  await assert.rejects(adapter.collect(context()),e=>{assert.ok(e instanceof Error);assert.equal((e as Error&{retryAfterSeconds?:number}).retryAfterSeconds,expected);assert.equal((e as Error&{secret?:string}).secret,undefined);assert.ok(!String(e).includes('synthetic-account-session'));return true;});
+ }
+}));

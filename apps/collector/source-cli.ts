@@ -57,7 +57,7 @@ const COMMAND_FLAGS:Record<string,string[]>={
   "assessment-record":["config","db","id","key","record-json"],
   "assessment-list":["config","db","id","key","limit","offset"],
   "resource-batch":["config","db","id"],
-  "process-pending":["config","db"],
+  "process-pending":["config","db","retry-failed"],
   "topic-batch":["config","db"],
   "cycle-progress":["config","db","id","cycle-id"],
   "x-feedback":["config","source-id","post-id","operation","post-text-hash","direct-url","resource-memory","resource-url","target","decision-id","profile-hash"],
@@ -241,7 +241,7 @@ function init(dir:string):void{
     observationsFile:input,databasePath:join(root,".source-scraper.sqlite"),synthetic:true});
 }
 async function execute(command:string,flags:Flags):Promise<void>{
-  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1","collection-filters-v1","candidate-thresholds-v1","x-cycle-v1","x-likes-v1","resource-batch-v1","resource-quality-v1","resource-admission-v1","public-resource-evidence-v1","x-post-resource-urls-v1","topic-relevance-v1","pending-processing-v1","post-feedback-v1"]});return;}
+  if(command==="version"){output({name:"source-scraper",version,jsonSchemaVersion:DATA_VERSION,capabilities:["agent-assessments-v1","selected-entity-export-v1","x-for-you-local-v1","collection-filters-v1","candidate-thresholds-v1","x-cycle-v1","x-likes-v1","resource-batch-v1","resource-quality-v1","resource-admission-v1","public-resource-evidence-v1","x-post-resource-urls-v1","topic-relevance-v1","pending-processing-v1","pending-processing-v2","post-feedback-v1"]});return;}
   if(command==="resource-evidence"){output(await collectResourceEvidence(required(flags,"url")));return;}
   if(command==="init"){init(flags.get("dir")||"./source-scraper-project");return;}
   if(command==="adapters"){
@@ -278,7 +278,8 @@ async function execute(command:string,flags:Flags):Promise<void>{
     const registry=createDefaultRegistry(flags.get("extension")?[resolve(required(flags,"extension"))]:[]);
     if(command==="process-pending"){
       if(!existsSync(db))throw Error("Collect the project before continuing processing");
-      output({schemaVersion:DATA_VERSION,command,id,result:await processPendingProject(db,project,registry)});return;
+      if(flags.has("retry-failed")&&!["true","false"].includes(flags.get("retry-failed")!))throw Error("retry-failed must be true or false");
+      output({schemaVersion:DATA_VERSION,command,id,result:await processPendingProject(db,project,registry,new AbortController().signal,flags.get("retry-failed")==="true")});return;
     }
     if(command==="run"){
       const result=await runProject(db,project,registry,{

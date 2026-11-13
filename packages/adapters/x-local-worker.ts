@@ -4,9 +4,31 @@ import hashlib
 import json
 import os
 import sys
+import time
 from datetime import timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
+
+
+class RateLimited(ValueError):
+    def __init__(self, response):
+        super().__init__("X_LOCAL_HTTP_429")
+        headers = getattr(response, "headers", {})
+        delays = []
+        try:
+            value = headers.get("retry-after", "")
+            delay = float(value) if str(value).isdigit() else parsedate_to_datetime(value).timestamp() - time.time()
+            if 0 < delay <= 604800:
+                delays.append(int(delay) + 1)
+        except (ValueError, TypeError, OverflowError):
+            pass
+        try:
+            delay = float(headers.get("x-rate-limit-reset", "")) - time.time()
+            if 0 < delay <= 604800:
+                delays.append(int(delay) + 1)
+        except (ValueError, TypeError, OverflowError):
+            pass
+        self.retry_after_seconds = max(delays) if delays else None
 
 
 def read_checkpoint(value):
@@ -121,7 +143,9 @@ async def collect(arguments):
             if not allowed:
                 raise ValueError("X_LOCAL_OPERATION_DENIED")
             response = await super()._send(method, url, **kwargs)
-            if response.status_code in (401, 403, 429) or response.status_code >= 300:
+            if response.status_code == 429:
+                raise RateLimited(response)
+            if response.status_code in (401, 403) or response.status_code >= 300:
                 raise ValueError("X_LOCAL_HTTP_" + str(response.status_code))
             return response
 
@@ -262,6 +286,8 @@ def serve():
             safe = message if message.startswith("X_LOCAL_") and all(c.isupper() or c.isdigit() or c == "_" for c in message) else ("X_LOCAL_TIMEOUT" if category in ("ReadTimeout", "ConnectTimeout", "TimeoutError", "PoolTimeout", "WriteTimeout") else "X_LOCAL_TRANSPORT_FAILED" if category in ("ReadError", "ConnectError", "RemoteProtocolError", "NetworkError") else "X_LOCAL_READ_FAILED")
             reply = {"jsonrpc": "2.0", "id": request.get("id") if isinstance(request, dict) else None,
                 "error": {"code": -32000, "message": safe}}
+            if isinstance(error, RateLimited) and error.retry_after_seconds is not None:
+                reply["error"]["data"] = {"retryAfterSeconds": error.retry_after_seconds}
         print(json.dumps(reply), flush=True)
 
 

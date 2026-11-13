@@ -62,6 +62,8 @@ export class KnowledgeStore extends Store {
       "CREATE TABLE IF NOT EXISTS kb_checkpoints (project_id TEXT NOT NULL,connection_id TEXT NOT NULL,cursor TEXT,updated_at TEXT NOT NULL,PRIMARY KEY(project_id,connection_id));" +
       "CREATE TABLE IF NOT EXISTS kb_processing_queue(project_id TEXT NOT NULL,connection_id TEXT NOT NULL,item_id TEXT NOT NULL,processor_id TEXT NOT NULL,next_at INTEGER NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(project_id,connection_id,item_id,processor_id));" +
       "CREATE INDEX IF NOT EXISTS kb_processing_due ON kb_processing_queue(project_id,processor_id,next_at,updated_at);" +
+      "CREATE TABLE IF NOT EXISTS kb_processing_summary(project_id TEXT PRIMARY KEY,record_json TEXT NOT NULL);" +
+      "CREATE TABLE IF NOT EXISTS kb_processing_blocked(project_id TEXT NOT NULL,connection_id TEXT NOT NULL,item_id TEXT NOT NULL,reason TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(project_id,connection_id,item_id));" +
       "CREATE INDEX IF NOT EXISTS kb_entities_type ON kb_entities(project_id,type);" +
       "CREATE INDEX IF NOT EXISTS kb_mentions_entity ON kb_mentions(project_id,entity_key);" +
       "CREATE INDEX IF NOT EXISTS kb_assessments_score ON kb_assessments(project_id,score DESC);"
@@ -218,11 +220,12 @@ export class KnowledgeStore extends Store {
     this.db.exec("BEGIN IMMEDIATE");
     try{
       for(const {observation,entities} of items){
+        this.prepareCached("DELETE FROM kb_processing_blocked WHERE project_id=? AND connection_id=? AND item_id=?").run(projectId,source.id,observation.id);
         const pending=entities.filter(e=>["pending","retry"].includes(String(e.draft.attributes?.metadataState)));
         if(pending.length){
           const nextAt=Math.min(...pending.map(e=>Number(e.draft.attributes?.metadataRetryAt??0)));
           this.prepareCached("INSERT INTO kb_processing_queue VALUES(?,?,?,'public-metadata',?,?) ON CONFLICT(project_id,connection_id,item_id,processor_id) DO UPDATE SET next_at=excluded.next_at,updated_at=excluded.updated_at").run(projectId,source.id,observation.id,nextAt,date);
-        }else if(entities.some(e=>e.draft.attributes?.metadataState==="complete"))this.prepareCached("DELETE FROM kb_processing_queue WHERE project_id=? AND connection_id=? AND item_id=? AND processor_id='public-metadata'").run(projectId,source.id,observation.id);
+        }else if(processingOnly||entities.some(e=>["complete","unavailable"].includes(String(e.draft.attributes?.metadataState))))this.prepareCached("DELETE FROM kb_processing_queue WHERE project_id=? AND connection_id=? AND item_id=? AND processor_id='public-metadata'").run(projectId,source.id,observation.id);
         const observationContent=JSON.stringify(observation);
         const observationHash=hash(observationContent);
         const oldObservation=this.prepareCached(
